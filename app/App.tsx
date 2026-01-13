@@ -342,6 +342,7 @@ const EditorInterface: React.FC = () => {
 };
 
 const App: React.FC = () => {
+    const api = useEngineAPI();
     const [entities, setEntities] = useState<Entity[]>([]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
@@ -391,9 +392,8 @@ const App: React.FC = () => {
 
     // Sync mesh component mode to engine
     useEffect(() => {
-        engineInstance.meshComponentMode = meshComponentMode;
-        engineInstance.notifyUI();
-    }, [meshComponentMode]);
+        api.commands.mesh.setComponentMode(meshComponentMode);
+    }, [meshComponentMode, api]);
 
     useEffect(() => { engineInstance.setGridConfig(gridConfig); }, [gridConfig]);
     useEffect(() => { engineInstance.setUiConfig(uiConfig); }, [uiConfig]);
@@ -402,7 +402,7 @@ const App: React.FC = () => {
     const handleSetSelectedIds = useCallback((ids: string[]) => {
         setSelectedIds(ids);
         // Use the engine delegate so selection side-effects (e.g. skeleton debug tool) stay in sync.
-        engineInstance.setSelected(ids);
+        api.commands.selection.setSelected(ids);
         
         if (ids.length > 0) setInspectedNode(null);
 
@@ -420,7 +420,7 @@ const App: React.FC = () => {
                 setMeshComponentMode('OBJECT');
             }
         }
-    }, [meshComponentMode, perObjectModes]);
+    }, [meshComponentMode, perObjectModes, api]);
 
     const handleSetMeshComponentMode = useCallback((mode: MeshComponentMode) => {
         setMeshComponentMode(mode);
@@ -429,6 +429,32 @@ const App: React.FC = () => {
             perObjectModes.set(selectedIds[0], mode);
         }
     }, [selectedIds, perObjectModes]);
+
+    // Command Wrappers for Soft Selection
+    const handleSetSoftSelectionEnabled = useCallback((enabled: boolean) => {
+        setSoftSelectionEnabled(enabled);
+        api.commands.sculpt.setEnabled(enabled);
+    }, [api]);
+
+    const handleSetSoftSelectionRadius = useCallback((radius: number) => {
+        setSoftSelectionRadius(radius);
+        api.commands.sculpt.setRadius(radius);
+    }, [api]);
+
+    const handleSetSoftSelectionMode = useCallback((mode: SoftSelectionMode) => {
+        setSoftSelectionMode(mode);
+        api.commands.sculpt.setMode(mode);
+    }, [api]);
+
+    const handleSetSoftSelectionFalloff = useCallback((falloff: SoftSelectionFalloff) => {
+        setSoftSelectionFalloff(falloff);
+        api.commands.sculpt.setFalloff(falloff);
+    }, [api]);
+
+    const handleSetSoftSelectionHeatmapVisible = useCallback((visible: boolean) => {
+        setSoftSelectionHeatmapVisible(visible);
+        api.commands.sculpt.setHeatmapVisible(visible);
+    }, [api]);
 
     const contextValue = useMemo<EditorContextType>(() => ({
         entities,
@@ -455,15 +481,15 @@ const App: React.FC = () => {
         meshComponentMode,
         setMeshComponentMode: handleSetMeshComponentMode,
         softSelectionEnabled,
-        setSoftSelectionEnabled,
+        setSoftSelectionEnabled: handleSetSoftSelectionEnabled,
         softSelectionRadius,
-        setSoftSelectionRadius,
+        setSoftSelectionRadius: handleSetSoftSelectionRadius,
         softSelectionMode,
-        setSoftSelectionMode,
+        setSoftSelectionMode: handleSetSoftSelectionMode,
         softSelectionFalloff,
-        setSoftSelectionFalloff,
+        setSoftSelectionFalloff: handleSetSoftSelectionFalloff,
         softSelectionHeatmapVisible,
-        setSoftSelectionHeatmapVisible,
+        setSoftSelectionHeatmapVisible: handleSetSoftSelectionHeatmapVisible,
         tool,
         setTool,
         transformSpace,
@@ -484,7 +510,8 @@ const App: React.FC = () => {
         entities, selectedIds, selectedAssetIds, inspectedNode, activeGraphConnections, 
         selectionType, meshComponentMode, tool, transformSpace, uiConfig, gridConfig, 
         snapSettings, skeletonViz, engineInstance.isPlaying, simulationMode, softSelectionEnabled, softSelectionRadius, softSelectionMode,
-        softSelectionFalloff, softSelectionHeatmapVisible, handleSetSelectedIds, handleSetMeshComponentMode
+        softSelectionFalloff, softSelectionHeatmapVisible, handleSetSelectedIds, handleSetMeshComponentMode,
+        handleSetSoftSelectionEnabled, handleSetSoftSelectionRadius, handleSetSoftSelectionMode, handleSetSoftSelectionFalloff, handleSetSoftSelectionHeatmapVisible
     ]);
 
     return (

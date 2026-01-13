@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import type { EngineAPI } from './types';
 import { createEngineAPI } from './createEngineAPI';
 import { createEngineContext } from '@/engine/core/createEngineContext';
@@ -12,24 +12,25 @@ const EngineAPIContext = createContext<EngineAPI | null>(null);
 export const EngineProvider: React.FC<React.PropsWithChildren<{ engine?: Engine }>> = ({ children, engine }) => {
   const inst = engine ?? engineInstance;
   
-  const ctx = useMemo(() => createEngineContext(inst), [inst]);
-  const api = useMemo(() => createEngineAPI(ctx), [ctx]);
+  // Initialize context and modules synchronously so they are ready
+  // before children render or run their effects.
+  const value = useMemo(() => {
+    const ctx = createEngineContext(inst);
+    // Initialize modules immediately to populate commands/queries
+    const disposeModules = initModules(ctx, MODULES);
+    const api = createEngineAPI(ctx);
+    
+    return { api, disposeModules };
+  }, [inst]);
 
-  const didInit = useRef(false);
+  // Cleanup modules on unmount
   useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
-    
-    // Initialize all registered modules
-    const dispose = initModules(ctx, MODULES);
-    
     return () => {
-        dispose();
-        didInit.current = false;
+      value.disposeModules();
     };
-  }, [ctx]);
+  }, [value]);
 
-  return <EngineAPIContext.Provider value={api}>{children}</EngineAPIContext.Provider>;
+  return <EngineAPIContext.Provider value={value.api}>{children}</EngineAPIContext.Provider>;
 };
 
 export function useEngineAPI(): EngineAPI {

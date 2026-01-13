@@ -6,6 +6,8 @@ import { ProceduralGeneration } from './ProceduralGeneration';
 import { MeshTopologyUtils } from './MeshTopologyUtils';
 // @ts-ignore
 import * as THREE from 'three';
+// @ts-ignore
+import { FBXLoader } from 'three-stdlib';
 import { eventBus } from './EventBus';
 
 export interface RigTemplate {
@@ -412,24 +414,20 @@ class AssetManagerService {
         const hasFaces = geometryData.faces && geometryData.faces.length > 0;
         const isAllTriangles = hasFaces && geometryData.faces.every((f: any[]) => f.length === 3);
 
-        // For FBX or triangulated OBJ, use reconstructQuads
         if (detectQuads && geometryData.idx.length > 0 && (!hasFaces || isAllTriangles)) {
              const verts = geometryData.v instanceof Float32Array ? geometryData.v : new Float32Array(geometryData.v);
              const norms = geometryData.n instanceof Float32Array ? geometryData.n : new Float32Array(geometryData.n);
              
-             // [CHANGED] Robust topology reconstruction based on feedback
              const topology = this.reconstructQuads(geometryData.idx, verts, norms, { 
-                 planarThreshold: 0.7, // Relaxed for FBX
+                 planarThreshold: 0.7, 
                  angleTolerance: 0.25,
                  maxEdgeLengthRatio: 3.0
              }); 
              
-             // Use reconstruction if valid
              if (topology.faces.length > 0) {
                  geometryData.faces = topology.faces;
                  geometryData.triToFace = topology.triToFace;
              } else if (!hasFaces) {
-                 // Fallback if failed
                  geometryData.faces = [];
                  geometryData.triToFace = [];
                  for(let i=0; i<geometryData.idx.length; i+=3) {
@@ -439,7 +437,6 @@ class AssetManagerService {
              }
         } 
         
-        // Final fallback: If no faces exist (e.g. detectQuads=false), build simple triangle topology
         if (!geometryData.faces || geometryData.faces.length === 0) {
              const faces = [];
              const triToFace = [];
@@ -457,11 +454,9 @@ class AssetManagerService {
         if (geometryData.faces) {
             geometryData.faces.forEach((f: number[], i: number) => {
                 f.forEach(vIdx => {
-                    // Populate v2f for this vertex
                     if(!v2f.has(vIdx)) v2f.set(vIdx, []);
                     if(!v2f.get(vIdx)!.includes(i)) v2f.get(vIdx)!.push(i);
 
-                    // Propagate to siblings (Spatial Welding for connectivity)
                     if (siblings.has(vIdx)) {
                         siblings.get(vIdx)!.forEach(sib => {
                             if(!v2f.has(sib)) v2f.set(sib, []);
@@ -476,7 +471,7 @@ class AssetManagerService {
             faces: geometryData.faces || [],
             triangleToFaceIndex: new Int32Array(geometryData.triToFace || []),
             vertexToFaces: v2f,
-            siblings // Store siblings map for edge walking
+            siblings 
         };
         
         if (geometryData.v.length > 0) {
@@ -518,20 +513,17 @@ class AssetManagerService {
                  }] 
              };
 
-
-// Create BOTH assets automatically: SKELETAL_MESH + SKELETON
-const skeletonAsset: SkeletonAsset = {
-    id: crypto.randomUUID(),
-    name: `${name}_Skeleton`,
-    type: 'SKELETON',
-    path: '/Content/Skeletons',
-    isProtected: false,
-    skeleton: skeletonData || defaultSkeleton,
-    animations: animations
-};
-this.registerAsset(skeletonAsset);
-eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
-
+            const skeletonAsset: SkeletonAsset = {
+                id: crypto.randomUUID(),
+                name: `${name}_Skeleton`,
+                type: 'SKELETON',
+                path: '/Content/Skeletons',
+                isProtected: false,
+                skeleton: skeletonData || defaultSkeleton,
+                animations: animations
+            };
+            this.registerAsset(skeletonAsset);
+            eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
 
              const skelAsset: SkeletalMeshAsset = {
                  ...assetBase,
@@ -616,8 +608,6 @@ eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
 
     private async parseFBX(content: ArrayBuffer | string, importScale: number, detectQuads: boolean) {
         try {
-            // @ts-ignore
-            const { FBXLoader } = await import('https://esm.sh/three@0.182.0/examples/jsm/loaders/FBXLoader.js?alias=three:three');
             const loader = new FBXLoader();
             const group = loader.parse(content, '');
             
@@ -635,7 +625,6 @@ eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
                 pos = geo.attributes.position.array;
                 norm = geo.attributes.normal ? geo.attributes.normal.array : null;
                 uv = geo.attributes.uv ? geo.attributes.uv.array : new Float32Array((pos.length / 3) * 2);
-                // Fix: Cast explicitly to avoid type error
                 idx = geo.index ? Array.from(geo.index.array as ArrayLike<number>) as number[] : [];
                 skinIndices = geo.attributes.skinIndex ? geo.attributes.skinIndex.array : null;
                 skinWeights = geo.attributes.skinWeight ? geo.attributes.skinWeight.array : null;
@@ -705,7 +694,6 @@ eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
             let triToFace: number[] = [];
             
             if (detectQuads) {
-                // Pass lenient parameters for FBX since triangulation is likely
                 const recon = this.reconstructQuads(idx, v, n, { 
                     planarThreshold: 0.7, 
                     angleTolerance: 0.25,
@@ -745,7 +733,6 @@ eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
 
         for (let i = 0; i < vertices.length / 3; i++) {
             const x = vertices[i * 3], y = vertices[i * 3 + 1], z = vertices[i * 3 + 2];
-            // High precision rounding
             const key = `${Math.round(x / epsilon)},${Math.round(y / epsilon)},${Math.round(z / epsilon)}`;
             if (!map.has(key)) {
                 map.set(key, next++);
@@ -761,259 +748,234 @@ eventBus.emit('ASSET_CREATED', { id: skeletonAsset.id, type: 'SKELETON' });
         return { weldedIndices, remap };
     }
 
-private reconstructQuads(
-    indices: number[],
-    vertices: Float32Array,
-    normals: Float32Array,
-    options?: Partial<ReconstructionOptions>
-): { faces: number[][], triToFace: number[] } {
+    private reconstructQuads(
+        indices: number[],
+        vertices: Float32Array,
+        normals: Float32Array,
+        options?: Partial<ReconstructionOptions>
+    ): { faces: number[][], triToFace: number[] } {
 
-    // ------------------------------------------------------------
-    // Early exit
-    // ------------------------------------------------------------
-    if (indices.length < 12) {
+        if (indices.length < 12) {
+            const faces: number[][] = [];
+            const triToFace: number[] = [];
+            for (let i = 0; i < indices.length; i += 3) {
+                faces.push([indices[i], indices[i + 1], indices[i + 2]]);
+                triToFace.push(faces.length - 1);
+            }
+            return { faces, triToFace };
+        }
+
+        const opts = {
+            planarThreshold: 0.7,
+            angleTolerance: 0.2,
+            maxEdgeLengthRatio: 3.0,
+            ...options
+        };
+
+        const triCount = indices.length / 3;
+        const used = new Uint8Array(triCount);
+        const triToFace = new Array(triCount).fill(-1);
         const faces: number[][] = [];
-        const triToFace: number[] = [];
-        for (let i = 0; i < indices.length; i += 3) {
-            faces.push([indices[i], indices[i + 1], indices[i + 2]]);
-            triToFace.push(faces.length - 1);
-        }
-        return { faces, triToFace };
-    }
 
-    const opts = {
-        planarThreshold: 0.7,
-        angleTolerance: 0.2,
-        maxEdgeLengthRatio: 3.0,
-        ...options
-    };
+        const { weldedIndices } = this.weldByPosition(vertices, indices);
 
-    const triCount = indices.length / 3;
-    const used = new Uint8Array(triCount);
-    const triToFace = new Array(triCount).fill(-1);
-    const faces: number[][] = [];
+        const getVec = (i: number) => ({
+            x: vertices[i * 3],
+            y: vertices[i * 3 + 1],
+            z: vertices[i * 3 + 2]
+        });
 
-    // ------------------------------------------------------------
-    // Weld positions (topology only)
-    // ------------------------------------------------------------
-    const { weldedIndices } = this.weldByPosition(vertices, indices);
+        const sub = (a: any, b: any) => ({
+            x: a.x - b.x,
+            y: a.y - b.y,
+            z: a.z - b.z
+        });
 
-    // ------------------------------------------------------------
-    // Math helpers
-    // ------------------------------------------------------------
-    const getVec = (i: number) => ({
-        x: vertices[i * 3],
-        y: vertices[i * 3 + 1],
-        z: vertices[i * 3 + 2]
-    });
+        const dot = (a: any, b: any) => a.x * b.x + a.y * b.y + a.z * b.z;
 
-    const sub = (a: any, b: any) => ({
-        x: a.x - b.x,
-        y: a.y - b.y,
-        z: a.z - b.z
-    });
+        const cross = (a: any, b: any) => ({
+            x: a.y * b.z - a.z * b.y,
+            y: a.z * b.x - a.x * b.z,
+            z: a.x * b.y - a.y * b.x
+        });
 
-    const dot = (a: any, b: any) => a.x * b.x + a.y * b.y + a.z * b.z;
+        const len = (v: any) => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 
-    const cross = (a: any, b: any) => ({
-        x: a.y * b.z - a.z * b.y,
-        y: a.z * b.x - a.x * b.z,
-        z: a.x * b.y - a.y * b.x
-    });
-
-    const len = (v: any) => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-
-    const normalize = (v: any) => {
-        const l = len(v);
-        return l > 0 ? { x: v.x / l, y: v.y / l, z: v.z / l } : { x: 0, y: 0, z: 0 };
-    };
-
-    const orthogonality = (a: any, b: any) =>
-        1.0 - Math.abs(dot(normalize(a), normalize(b)));
-
-    // ------------------------------------------------------------
-    // Triangle normals (geometric)
-    // ------------------------------------------------------------
-    const triNormals = new Float32Array(triCount * 3);
-
-    for (let t = 0; t < triCount; t++) {
-        const i0 = indices[t * 3];
-        const i1 = indices[t * 3 + 1];
-        const i2 = indices[t * 3 + 2];
-
-        const v0 = getVec(i0);
-        const v1 = getVec(i1);
-        const v2 = getVec(i2);
-
-        const n = normalize(cross(sub(v1, v0), sub(v2, v0)));
-
-        triNormals[t * 3] = n.x;
-        triNormals[t * 3 + 1] = n.y;
-        triNormals[t * 3 + 2] = n.z;
-    }
-
-    // ------------------------------------------------------------
-    // Build edge map (welded)
-    // ------------------------------------------------------------
-    const edgeMap = new Map<string, number[]>();
-
-    for (let t = 0; t < triCount; t++) {
-        const a = weldedIndices[t * 3];
-        const b = weldedIndices[t * 3 + 1];
-        const c = weldedIndices[t * 3 + 2];
-
-        const edges = [
-            [a, b],
-            [b, c],
-            [c, a]
-        ];
-
-        for (const e of edges) {
-            const key = e[0] < e[1] ? `${e[0]}|${e[1]}` : `${e[1]}|${e[0]}`;
-            if (!edgeMap.has(key)) edgeMap.set(key, []);
-            edgeMap.get(key)!.push(t);
-        }
-    }
-
-    // ------------------------------------------------------------
-    // Candidate generation
-    // ------------------------------------------------------------
-    interface Candidate {
-        t1: number;
-        t2: number;
-        quad: number[];
-        score: number;
-    }
-
-    const candidates: Candidate[] = [];
-
-    const getOriginal = (t: number, w: number) => {
-        const base = t * 3;
-        if (weldedIndices[base] === w) return indices[base];
-        if (weldedIndices[base + 1] === w) return indices[base + 1];
-        return indices[base + 2];
-    };
-
-    for (const tris of edgeMap.values()) {
-        if (tris.length !== 2) continue;
-
-        const t1 = tris[0];
-        const t2 = tris[1];
-
-        const n1 = {
-            x: triNormals[t1 * 3],
-            y: triNormals[t1 * 3 + 1],
-            z: triNormals[t1 * 3 + 2]
+        const normalize = (v: any) => {
+            const l = len(v);
+            return l > 0 ? { x: v.x / l, y: v.y / l, z: v.z / l } : { x: 0, y: 0, z: 0 };
         };
 
-        const n2 = {
-            x: triNormals[t2 * 3],
-            y: triNormals[t2 * 3 + 1],
-            z: triNormals[t2 * 3 + 2]
-        };
+        const orthogonality = (a: any, b: any) =>
+            1.0 - Math.abs(dot(normalize(a), normalize(b)));
 
-        const planarity = dot(n1, n2);
-        if (planarity < opts.planarThreshold) continue;
+        const triNormals = new Float32Array(triCount * 3);
 
-        const w1 = [
-            weldedIndices[t1 * 3],
-            weldedIndices[t1 * 3 + 1],
-            weldedIndices[t1 * 3 + 2]
-        ];
+        for (let t = 0; t < triCount; t++) {
+            const i0 = indices[t * 3];
+            const i1 = indices[t * 3 + 1];
+            const i2 = indices[t * 3 + 2];
 
-        const w2 = [
-            weldedIndices[t2 * 3],
-            weldedIndices[t2 * 3 + 1],
-            weldedIndices[t2 * 3 + 2]
-        ];
+            const v0 = getVec(i0);
+            const v1 = getVec(i1);
+            const v2 = getVec(i2);
 
-        const shared = w1.filter(v => w2.includes(v));
-        if (shared.length !== 2) continue;
+            const n = normalize(cross(sub(v1, v0), sub(v2, v0)));
 
-        const u1 = w1.find(v => !shared.includes(v))!;
-        const u2 = w2.find(v => !shared.includes(v))!;
-
-        const quad = [
-            getOriginal(t1, u1),
-            getOriginal(t1, shared[0]),
-            getOriginal(t2, u2),
-            getOriginal(t1, shared[1])
-        ];
-
-        const p = quad.map(getVec);
-        const edges = [
-            sub(p[1], p[0]),
-            sub(p[2], p[1]),
-            sub(p[3], p[2]),
-            sub(p[0], p[3])
-        ];
-
-        let angleScore = 0;
-        let bad = false;
-        for (let i = 0; i < 4; i++) {
-            const o = orthogonality(edges[i], edges[(i + 1) % 4]);
-            if (o < 0.2) bad = true;
-            angleScore += o;
+            triNormals[t * 3] = n.x;
+            triNormals[t * 3 + 1] = n.y;
+            triNormals[t * 3 + 2] = n.z;
         }
-        if (bad) continue;
 
-        const lens = edges.map(len);
-        if (Math.max(...lens) / Math.min(...lens) > opts.maxEdgeLengthRatio) continue;
+        const edgeMap = new Map<string, number[]>();
 
-        const score = angleScore * 2 + planarity * 5;
-        candidates.push({ t1, t2, quad, score });
-    }
+        for (let t = 0; t < triCount; t++) {
+            const a = weldedIndices[t * 3];
+            const b = weldedIndices[t * 3 + 1];
+            const c = weldedIndices[t * 3 + 2];
 
-    // ------------------------------------------------------------
-    // STRIP-BIASED RESOLUTION (Maya-style)
-    // ------------------------------------------------------------
-    while (true) {
-        let best: Candidate | null = null;
-        let bestScore = -Infinity;
+            const edges = [
+                [a, b],
+                [b, c],
+                [c, a]
+            ];
 
-        for (const c of candidates) {
-            if (used[c.t1] || used[c.t2]) continue;
-
-            let stripBias = 0;
-            if (triToFace[c.t1] !== -1) stripBias++;
-            if (triToFace[c.t2] !== -1) stripBias++;
-
-            const finalScore = stripBias * 2.5 + c.score;
-
-            if (finalScore > bestScore) {
-                bestScore = finalScore;
-                best = c;
+            for (const e of edges) {
+                const key = e[0] < e[1] ? `${e[0]}|${e[1]}` : `${e[1]}|${e[0]}`;
+                if (!edgeMap.has(key)) edgeMap.set(key, []);
+                edgeMap.get(key)!.push(t);
             }
         }
 
-        if (!best) break;
-
-        const fIdx = faces.length;
-        faces.push(best.quad);
-
-        triToFace[best.t1] = fIdx;
-        triToFace[best.t2] = fIdx;
-        used[best.t1] = 1;
-        used[best.t2] = 1;
-    }
-
-    // ------------------------------------------------------------
-    // Remaining triangles
-    // ------------------------------------------------------------
-    for (let t = 0; t < triCount; t++) {
-        if (!used[t]) {
-            faces.push([
-                indices[t * 3],
-                indices[t * 3 + 1],
-                indices[t * 3 + 2]
-            ]);
-            triToFace[t] = faces.length - 1;
+        interface Candidate {
+            t1: number;
+            t2: number;
+            quad: number[];
+            score: number;
         }
+
+        const candidates: Candidate[] = [];
+
+        const getOriginal = (t: number, w: number) => {
+            const base = t * 3;
+            if (weldedIndices[base] === w) return indices[base];
+            if (weldedIndices[base + 1] === w) return indices[base + 1];
+            return indices[base + 2];
+        };
+
+        for (const tris of edgeMap.values()) {
+            if (tris.length !== 2) continue;
+
+            const t1 = tris[0];
+            const t2 = tris[1];
+
+            const n1 = {
+                x: triNormals[t1 * 3],
+                y: triNormals[t1 * 3 + 1],
+                z: triNormals[t1 * 3 + 2]
+            };
+
+            const n2 = {
+                x: triNormals[t2 * 3],
+                y: triNormals[t2 * 3 + 1],
+                z: triNormals[t2 * 3 + 2]
+            };
+
+            const planarity = dot(n1, n2);
+            if (planarity < opts.planarThreshold) continue;
+
+            const w1 = [
+                weldedIndices[t1 * 3],
+                weldedIndices[t1 * 3 + 1],
+                weldedIndices[t1 * 3 + 2]
+            ];
+
+            const w2 = [
+                weldedIndices[t2 * 3],
+                weldedIndices[t2 * 3 + 1],
+                weldedIndices[t2 * 3 + 2]
+            ];
+
+            const shared = w1.filter(v => w2.includes(v));
+            if (shared.length !== 2) continue;
+
+            const u1 = w1.find(v => !shared.includes(v))!;
+            const u2 = w2.find(v => !shared.includes(v))!;
+
+            const quad = [
+                getOriginal(t1, u1),
+                getOriginal(t1, shared[0]),
+                getOriginal(t2, u2),
+                getOriginal(t1, shared[1])
+            ];
+
+            const p = quad.map(getVec);
+            const edges = [
+                sub(p[1], p[0]),
+                sub(p[2], p[1]),
+                sub(p[3], p[2]),
+                sub(p[0], p[3])
+            ];
+
+            let angleScore = 0;
+            let bad = false;
+            for (let i = 0; i < 4; i++) {
+                const o = orthogonality(edges[i], edges[(i + 1) % 4]);
+                if (o < 0.2) bad = true;
+                angleScore += o;
+            }
+            if (bad) continue;
+
+            const lens = edges.map(len);
+            if (Math.max(...lens) / Math.min(...lens) > opts.maxEdgeLengthRatio) continue;
+
+            const score = angleScore * 2 + planarity * 5;
+            candidates.push({ t1, t2, quad, score });
+        }
+
+        while (true) {
+            let best: Candidate | null = null;
+            let bestScore = -Infinity;
+
+            for (const c of candidates) {
+                if (used[c.t1] || used[c.t2]) continue;
+
+                let stripBias = 0;
+                if (triToFace[c.t1] !== -1) stripBias++;
+                if (triToFace[c.t2] !== -1) stripBias++;
+
+                const finalScore = stripBias * 2.5 + c.score;
+
+                if (finalScore > bestScore) {
+                    bestScore = finalScore;
+                    best = c;
+                }
+            }
+
+            if (!best) break;
+
+            const fIdx = faces.length;
+            faces.push(best.quad);
+
+            triToFace[best.t1] = fIdx;
+            triToFace[best.t2] = fIdx;
+            used[best.t1] = 1;
+            used[best.t2] = 1;
+        }
+
+        for (let t = 0; t < triCount; t++) {
+            if (!used[t]) {
+                faces.push([
+                    indices[t * 3],
+                    indices[t * 3 + 1],
+                    indices[t * 3 + 2]
+                ]);
+                triToFace[t] = faces.length - 1;
+            }
+        }
+
+        return { faces, triToFace };
     }
-
-    return { faces, triToFace };
-}
-
 
     private generateMissingNormals(v: number[], n: number[], idx: number[]) {
         if (v.length > 0) {
@@ -1036,7 +998,6 @@ private reconstructQuads(
         const data = generator();
         const v2f = new Map<number, number[]>();
         
-        // Compute siblings for hard-edge traversal support
         const siblings = this.computeSiblings(data.v);
 
         data.faces?.forEach((f: number[], i: number) => {
@@ -1044,7 +1005,6 @@ private reconstructQuads(
                 if(!v2f.has(vIdx)) v2f.set(vIdx, []);
                 if(!v2f.get(vIdx)!.includes(i)) v2f.get(vIdx)!.push(i);
                 
-                // Propagate to siblings
                 if (siblings.has(vIdx)) {
                     siblings.get(vIdx)!.forEach(sib => {
                         if(!v2f.has(sib)) v2f.set(sib, []);
@@ -1061,7 +1021,7 @@ private reconstructQuads(
             faces: data.faces, 
             triangleToFaceIndex: new Int32Array(data.triToFace), 
             vertexToFaces: v2f,
-            siblings // Store siblings map
+            siblings 
         };
         
         if (data.faces) topology.graph = MeshTopologyUtils.buildTopology(topology, data.v.length / 3);

@@ -28,11 +28,8 @@ interface SceneViewProps {
 export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSelect, selectedIds, tool }) => {
     const { 
         meshComponentMode, setMeshComponentMode, 
-        softSelectionEnabled, setSoftSelectionEnabled,
-        softSelectionRadius, setSoftSelectionRadius,
-        softSelectionMode, 
-        softSelectionFalloff,
-        softSelectionHeatmapVisible,
+        softSelectionEnabled, 
+        softSelectionRadius, 
         setTool
     } = useContext(EditorContext)!;
     
@@ -104,25 +101,9 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         handleModeSelect
     });
 
-    useEffect(() => {
-        engineInstance.meshComponentMode = meshComponentMode;
-        engineInstance.deformationSystem.enabled = softSelectionEnabled;
-        engineInstance.deformationSystem.radius = softSelectionRadius;
-        engineInstance.deformationSystem.mode = softSelectionMode;
-        engineInstance.deformationSystem.falloff = softSelectionFalloff;
-        engineInstance.deformationSystem.heatmapVisible = softSelectionHeatmapVisible;
-        
-        engineInstance.recalculateSoftSelection(); 
-    }, [
-        meshComponentMode, 
-        softSelectionEnabled, 
-        softSelectionRadius, 
-        softSelectionMode, 
-        softSelectionFalloff, 
-        softSelectionHeatmapVisible,
-        selectedIds
-    ]);
-
+    // Mesh component mode is now handled via API command in App.tsx
+    // Soft selection state is now handled via API command in App.tsx
+    
     const viewportSize = useViewportSize(containerRef, { dprCap: 2 });
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -499,7 +480,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
             <div className="absolute bottom-2 right-2 text-[10px] text-text-secondary bg-black/40 px-2 py-0.5 rounded backdrop-blur border border-white/5 z-20 flex flex-col items-end">
                 <span>Cam: {camera.target.x.toFixed(1)}, {camera.target.y.toFixed(1)}, {camera.target.z.toFixed(1)}</span>
                 {softSelectionEnabled && meshComponentMode !== 'OBJECT' && (
-                    <span className="text-accent">Soft Sel ({softSelectionMode === 'FIXED' ? 'Fixed' : 'Dynamic'}): {softSelectionRadius.toFixed(1)}m</span>
+                    <span className="text-accent">Soft Sel ({softSelectionRadius.toFixed(1)}m)</span>
                 )}
             </div>
 

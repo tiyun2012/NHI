@@ -1,3 +1,4 @@
+
 {
   "name": "ti3d-engine-editor",
   "private": true,
@@ -13,7 +14,8 @@
     "react-dom": "^19.2.1",
     "lucide-react": "^0.559.0",
     "rc-dock": "3.3.1",
-    "three": "^0.174.0"
+    "three": "^0.174.0",
+    "three-stdlib": "^2.35.13"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
