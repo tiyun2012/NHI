@@ -1,25 +1,23 @@
 
-import type { EngineModule } from "@/engine/core/EngineModule";
-import type { EngineContext } from "@/engine/core/EngineContext";
-import { SELECTION_CHANGED } from "./selection.events";
+import type { EngineModule } from '@/engine/core/moduleHost';
+import { registerCommands, registerQueries } from '@/engine/core/registry';
 
 export const SelectionModule: EngineModule = {
-  id: "selection",
-  init(ctx: EngineContext) {
-    // Commands
-    ctx.commands.selection = {
-      setSelected(ids: readonly string[]) {
+  id: 'selection',
+
+  init(ctx) {
+    registerCommands(ctx, 'selection', {
+      setSelected(ids) {
         ctx.engine.setSelected([...ids]);
-        ctx.events.emit(SELECTION_CHANGED, { ids: [...ids] });
+        ctx.events.emit('selection:changed', { ids: [...ids] });
       },
       clear() {
         ctx.engine.setSelected([]);
-        ctx.events.emit(SELECTION_CHANGED, { ids: [] });
+        ctx.events.emit('selection:changed', { ids: [] });
       },
-    };
+    });
 
-    // Queries
-    ctx.queries.selection = {
+    registerQueries(ctx, 'selection', {
       getSelectedIds() {
         const indices = ctx.engine.selectionSystem.selectedIndices;
         const ids: string[] = [];
@@ -28,7 +26,7 @@ export const SelectionModule: EngineModule = {
           if (id) ids.push(id);
         });
         return ids;
-      }
-    };
+      },
+    });
   },
 };
