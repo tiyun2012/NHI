@@ -1,0 +1,321 @@
+import type { SkeletonAsset, SkeletalMeshAsset } from '@/types';
+import type { DebugRenderer } from '../renderers/DebugRenderer';
+import type { Vec3 } from '../math';
+
+/**
+ * Dependency-injected skeleton debug tool.
+ *
+ * Why this exists:
+ * - The old implementation imported `engineInstance` directly, which made tools hard to reuse
+ *   in other widgets/windows (asset preview, multiple scenes, tests).
+ * - This version is created per Engine instance and only depends on a small runtime surface.
+ */
+
+export interface SkeletonToolOptions {
+  enabled: boolean;
+  drawJoints: boolean;
+  drawBones: boolean;
+  drawAxes: boolean;
+
+  /** Joint size in screen pixels (DebugRenderer point size). */
+  jointRadius: number;
+
+  /** Multiplier applied to the root joint size. */
+  rootScale: number;
+
+  /** Default bone line color (used when a bone has no visual.color). */
+  boneColor: { r: number; g: number; b: number };
+
+  /** Default root joint color (used when root has no visual.color). */
+  rootColor: { r: number; g: number; b: number };
+
+  /** Debug point outline thickness (0..1). */
+  border: number;
+}
+
+export const DEFAULT_SKELETON_TOOL_OPTIONS: SkeletonToolOptions = {
+  enabled: true,
+  drawJoints: true,
+  drawBones: true,
+  drawAxes: false,
+  jointRadius: 10,
+  rootScale: 1.6,
+  boneColor: { r: 0.5, g: 0.5, b: 0.5 },
+  rootColor: { r: 0.2, g: 1.0, b: 0.2 },
+  border: 0.2,
+};
+
+export type SkeletonToolDeps = {
+  // Rendering
+  getDebugRenderer(): DebugRenderer | null;
+
+  // Scene + bones
+  getWorldMatrix(entityId: string): Float32Array | null;
+  getSkeletonEntityAssetMap(): Map<string, string>; // (root bone entity) -> skeletonAssetId
+  getSkeletonMap(): Map<string, string[]>; // (mesh entity) -> live bone entity ids
+
+  // ECS access
+  getEntityIndex(entityId: string): number | undefined;
+  isEntityActive(idx: number): boolean;
+  getMeshIntId(idx: number): number;
+
+  // Assets
+  getAssetById(assetId: string): SkeletonAsset | SkeletalMeshAsset | undefined;
+  meshIntToUuid(meshIntId: number): string | undefined;
+};
+
+export class SkeletonTool {
+  private options: SkeletonToolOptions;
+
+  constructor(private deps: SkeletonToolDeps, opts?: Partial<SkeletonToolOptions>) {
+    this.options = { ...DEFAULT_SKELETON_TOOL_OPTIONS, ...(opts ?? {}) };
+  }
+
+  /**
+   * Kept for compatibility with older code paths.
+   * The current drawing loop renders all skeletons, so this is a no-op.
+   */
+  setActive(_assetId: string | null, _entityId: string | null) {
+    // no-op
+  }
+
+  /** Backwards compatible. */
+  setActiveAsset(_assetId: string | null) {
+    // no-op
+  }
+
+  setOptions(partial: Partial<SkeletonToolOptions>) {
+    this.options = { ...this.options, ...partial };
+  }
+
+  getOptions(): SkeletonToolOptions {
+    return this.options;
+  }
+
+  update() {
+    if (!this.options.enabled) return;
+
+    const debug = this.deps.getDebugRenderer();
+    if (!debug) return;
+
+    // 1) Standalone skeleton entities (rig-only)
+    this.deps.getSkeletonEntityAssetMap().forEach((assetId, entityId) => {
+      this.drawSkeleton(assetId, entityId, debug, true);
+    });
+
+    // 2) Skeletal meshes (entities that have spawned bones)
+    this.deps.getSkeletonMap().forEach((_, entityId) => {
+      if (this.deps.getSkeletonEntityAssetMap().has(entityId)) return;
+
+      const idx = this.deps.getEntityIndex(entityId);
+      if (idx === undefined || !this.deps.isEntityActive(idx)) return;
+
+      const meshIntId = this.deps.getMeshIntId(idx);
+      const assetId = this.deps.meshIntToUuid(meshIntId);
+      if (assetId) this.drawSkeleton(assetId, entityId, debug, false);
+    });
+  }
+
+  private drawSkeleton(assetId: string, entityId: string, debug: DebugRenderer, isStandalone: boolean) {
+    const asset = this.deps.getAssetById(assetId);
+    if (!asset) return;
+
+    const skeleton = (asset as any).skeleton as { bones: any[] } | undefined;
+    if (!skeleton || !Array.isArray(skeleton.bones)) return;
+
+    const worldMat = this.deps.getWorldMatrix(entityId);
+    if (!worldMat) return;
+
+    // Manual matrix multiplication helper for points
+    const transform = (x: number, y: number, z: number) => ({
+      x: worldMat[0] * x + worldMat[4] * y + worldMat[8] * z + worldMat[12],
+      y: worldMat[1] * x + worldMat[5] * y + worldMat[9] * z + worldMat[13],
+      z: worldMat[2] * x + worldMat[6] * y + worldMat[10] * z + worldMat[14],
+    });
+
+    // Manual matrix rotation helper (ignores translation) for axes
+    const rotate = (x: number, y: number, z: number) => ({
+      x: worldMat[0] * x + worldMat[4] * y + worldMat[8] * z,
+      y: worldMat[1] * x + worldMat[5] * y + worldMat[9] * z,
+      z: worldMat[2] * x + worldMat[6] * y + worldMat[10] * z,
+    });
+
+    if (isStandalone) {
+      const origin = { x: worldMat[12], y: worldMat[13], z: worldMat[14] };
+      // entity basis (columns of worldMat)
+      const ex = { x: worldMat[0], y: worldMat[1], z: worldMat[2] };
+      const ey = { x: worldMat[4], y: worldMat[5], z: worldMat[6] };
+      const ez = { x: worldMat[8], y: worldMat[9], z: worldMat[10] };
+      this.drawAxis(debug, origin, ex, ey, ez, 0.6);
+    }
+
+    const bones = skeleton.bones;
+    const liveBoneIds = this.deps.getSkeletonMap().get(entityId);
+
+    for (let i = 0; i < bones.length; i++) {
+      const bone = bones[i];
+      const p = (bone as any).parentIndex;
+      const isRoot = p === -1 || p === undefined || p === null;
+
+      let pos = { x: 0, y: 0, z: 0 };
+      let rx = { x: 1, y: 0, z: 0 };
+      let ry = { x: 0, y: 1, z: 0 };
+      let rz = { x: 0, y: 0, z: 1 };
+
+      // Prefer the LIVE position from the Entity if present
+      let usedLiveEntity = false;
+      if (liveBoneIds && liveBoneIds[i]) {
+        const liveBoneId = liveBoneIds[i];
+        const liveWm = this.deps.getWorldMatrix(liveBoneId);
+        if (liveWm) {
+          pos = { x: liveWm[12], y: liveWm[13], z: liveWm[14] };
+
+          // Axes from live matrix (columns 0, 1, 2), normalized
+          const lx = Math.sqrt(liveWm[0] ** 2 + liveWm[1] ** 2 + liveWm[2] ** 2) || 1;
+          rx = { x: liveWm[0] / lx, y: liveWm[1] / lx, z: liveWm[2] / lx };
+          const ly = Math.sqrt(liveWm[4] ** 2 + liveWm[5] ** 2 + liveWm[6] ** 2) || 1;
+          ry = { x: liveWm[4] / ly, y: liveWm[5] / ly, z: liveWm[6] / ly };
+          const lz = Math.sqrt(liveWm[8] ** 2 + liveWm[9] ** 2 + liveWm[10] ** 2) || 1;
+          rz = { x: liveWm[8] / lz, y: liveWm[9] / lz, z: liveWm[10] / lz };
+          usedLiveEntity = true;
+        }
+      }
+
+      // Fallback: bind pose transformed by entity world matrix
+      if (!usedLiveEntity) {
+        const bx = bone.bindPose[12];
+        const by = bone.bindPose[13];
+        const bz = bone.bindPose[14];
+        pos = transform(bx, by, bz);
+
+        const brx = { x: bone.bindPose[0], y: bone.bindPose[1], z: bone.bindPose[2] };
+        const bry = { x: bone.bindPose[4], y: bone.bindPose[5], z: bone.bindPose[6] };
+        const brz = { x: bone.bindPose[8], y: bone.bindPose[9], z: bone.bindPose[10] };
+        rx = rotate(brx.x, brx.y, brx.z);
+        ry = rotate(bry.x, bry.y, bry.z);
+        rz = rotate(brz.x, brz.y, brz.z);
+      }
+
+      if (isRoot) {
+        const drawRootAxis = isStandalone || this.options.drawAxes;
+        if (drawRootAxis) {
+          const axisScale = 0.35 * this.options.rootScale;
+          this.drawAxis(debug, pos, rx, ry, rz, axisScale);
+        }
+
+        if (this.options.drawJoints) {
+          const radius = 0.03 * this.options.rootScale;
+          this.drawWireSphere(debug, pos, radius, this.options.rootColor, rx, ry, rz);
+        }
+      } else {
+        if (this.options.drawJoints) {
+          let r = this.options.jointRadius;
+          const mult = bone.visual?.size ?? 1.0;
+          r *= mult;
+
+          let color = { r: 1, g: 0.5, b: 0 };
+          if (bone.visual?.color) {
+            const c = bone.visual.color;
+            color = {
+              r: c.x ?? c[0] ?? color.r,
+              g: c.y ?? c[1] ?? color.g,
+              b: c.z ?? c[2] ?? color.b,
+            };
+          }
+          debug.drawPoint(pos, color, r, this.options.border);
+        }
+      }
+
+      if (this.options.drawAxes && !isRoot) {
+        this.drawAxis(debug, pos, rx, ry, rz, 0.3);
+      }
+
+      // Bone connection line
+      if (this.options.drawBones && !isRoot && typeof p === 'number' && p >= 0 && p < bones.length) {
+        let pPos = { x: 0, y: 0, z: 0 };
+        let pUsedLive = false;
+
+        if (liveBoneIds && liveBoneIds[p]) {
+          const pLiveId = liveBoneIds[p];
+          const pWm = this.deps.getWorldMatrix(pLiveId);
+          if (pWm) {
+            pPos = { x: pWm[12], y: pWm[13], z: pWm[14] };
+            pUsedLive = true;
+          }
+        }
+
+        if (!pUsedLive) {
+          const parent = bones[p];
+          if (parent?.bindPose) pPos = transform(parent.bindPose[12], parent.bindPose[13], parent.bindPose[14]);
+        }
+        debug.drawLine(pPos, pos, this.options.boneColor);
+      }
+    }
+  }
+
+  private drawWireSphere(
+    debug: DebugRenderer,
+    center: Vec3,
+    radius: number,
+    color: { r: number; g: number; b: number },
+    xAxis: Vec3,
+    yAxis: Vec3,
+    zAxis: Vec3,
+  ) {
+    const segments = 12;
+    const getPoint = (u: Vec3, v: Vec3, theta: number) => {
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      return {
+        x: center.x + (u.x * cos + v.x * sin) * radius,
+        y: center.y + (u.y * cos + v.y * sin) * radius,
+        z: center.z + (u.z * cos + v.z * sin) * radius,
+      };
+    };
+
+    // XY
+    let prev = getPoint(xAxis, yAxis, 0);
+    for (let i = 1; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const next = getPoint(xAxis, yAxis, theta);
+      debug.drawLine(prev, next, color);
+      prev = next;
+    }
+
+    // YZ
+    prev = getPoint(yAxis, zAxis, 0);
+    for (let i = 1; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const next = getPoint(yAxis, zAxis, theta);
+      debug.drawLine(prev, next, color);
+      prev = next;
+    }
+
+    // XZ
+    prev = getPoint(xAxis, zAxis, 0);
+    for (let i = 1; i <= segments; i++) {
+      const theta = (i / segments) * Math.PI * 2;
+      const next = getPoint(xAxis, zAxis, theta);
+      debug.drawLine(prev, next, color);
+      prev = next;
+    }
+  }
+
+  private drawAxis(debug: DebugRenderer, origin: Vec3, xAxis: Vec3, yAxis: Vec3, zAxis: Vec3, scale: number) {
+    debug.drawLine(
+      origin,
+      { x: origin.x + xAxis.x * scale, y: origin.y + xAxis.y * scale, z: origin.z + xAxis.z * scale },
+      { r: 1, g: 0, b: 0 },
+    );
+    debug.drawLine(
+      origin,
+      { x: origin.x + yAxis.x * scale, y: origin.y + yAxis.y * scale, z: origin.z + yAxis.z * scale },
+      { r: 0, g: 1, b: 0 },
+    );
+    debug.drawLine(
+      origin,
+      { x: origin.x + zAxis.x * scale, y: origin.y + zAxis.y * scale, z: origin.z + zAxis.z * scale },
+      { r: 0, g: 0, b: 1 },
+    );
+  }
+}
