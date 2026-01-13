@@ -1,6 +1,7 @@
 
 import type { EngineModule } from '@/engine/core/moduleHost';
 import { registerCommands } from '@/engine/core/registry';
+import { ComponentType } from '@/types';
 
 export const SceneModule: EngineModule = {
   id: 'scene',
@@ -35,6 +36,20 @@ export const SceneModule: EngineModule = {
          ctx.engine.sceneGraph.attach(childId, parentId);
          ctx.engine.notifyUI();
       },
+
+      addComponent(id, type) {
+        ctx.engine.pushUndoState();
+        ctx.engine.ecs.addComponent(id, type as ComponentType);
+        ctx.engine.notifyUI();
+        ctx.events.emit('component:added', { id, type: type as ComponentType });
+      },
+
+      removeComponent(id, type) {
+        ctx.engine.pushUndoState();
+        ctx.engine.ecs.removeComponent(id, type as ComponentType);
+        ctx.engine.notifyUI();
+        ctx.events.emit('component:removed', { id, type: type as ComponentType });
+      }
     });
   },
 };

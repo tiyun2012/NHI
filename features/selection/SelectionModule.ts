@@ -27,6 +27,9 @@ export const SelectionModule: EngineModule = {
         });
         return ids;
       },
+      getSubSelection() {
+        return ctx.engine.selectionSystem.subSelection;
+      }
     });
   },
 };

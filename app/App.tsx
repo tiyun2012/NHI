@@ -6,6 +6,7 @@ import { Entity, ToolType, TransformSpace, SelectionType, GraphNode, GraphConnec
 import { EditorContext, EditorContextType, DEFAULT_UI_CONFIG, UIConfiguration, GridConfiguration, DEFAULT_GRID_CONFIG, SnapSettings, DEFAULT_SNAP_CONFIG, DEFAULT_SKELETON_VIZ, SkeletonVizSettings } from '@/editor/state/EditorContext';
 import { assetManager } from '@/engine/AssetManager';
 import { consoleService } from '@/engine/Console';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
 
 // Components
 import { Toolbar } from '@/editor/components/Toolbar';
@@ -220,6 +221,9 @@ const EditorInterface: React.FC = () => {
     const wm = useContext(WindowManagerContext) as WindowManagerContextType | null;
     const editor = useContext(EditorContext) as EditorContextType | null;
     const initialized = useRef(false);
+    
+    // Use Engine API
+    const api = useEngineAPI();
 
     useEffect(() => {
         if (!wm) return;
@@ -288,14 +292,14 @@ const EditorInterface: React.FC = () => {
                 const isInput = active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA';
                 if (!isInput && editor?.selectedIds.length && editor.selectionType === 'ENTITY') {
                     e.preventDefault();
-                    editor.selectedIds.forEach(id => engineInstance.deleteEntity(id, engineInstance.sceneGraph));
+                    editor.selectedIds.forEach(id => api.commands.scene.deleteEntity(id));
                     editor.setSelectedIds([]);
                 }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editor?.selectedIds, editor?.selectionType]);
+    }, [editor?.selectedIds, editor?.selectionType, api]);
 
     if (!editor) return <div className="flex h-screen items-center justify-center text-white">Initializing...</div>;
 

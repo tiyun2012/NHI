@@ -1,5 +1,5 @@
 
-import type { SimulationMode, MeshComponentMode } from '@/types';
+import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule } from '@/types';
 
 export interface EngineCommands {
   selection: {
@@ -17,12 +17,26 @@ export interface EngineCommands {
     deleteEntity(id: string): void;
     renameEntity(id: string, name: string): void;
     reparentEntity(childId: string, parentId: string | null): void;
+    addComponent(id: string, type: string): void;
+    removeComponent(id: string, type: string): void;
+  };
+  history: {
+    pushState(): void;
+    undo(): void;
+    redo(): void;
+  };
+  ui: {
+    notify(): void;
   };
 }
 
 export interface EngineQueries {
   selection: {
     getSelectedIds(): string[];
+    getSubSelection(): { vertexIds: Set<number>; edgeIds: Set<string>; faceIds: Set<number> };
+  };
+  registry: {
+    getModules(): EngineModule[];
   };
 }
 
@@ -32,7 +46,9 @@ export interface EngineEvents {
   'scene:entityCreated': { id: string; name?: string };
   'scene:entityDeleted': { id: string };
   'scene:entityRenamed': { id: string; name: string };
-  [key: string]: any; // Fallback for legacy/untyped events
+  'component:added': { id: string; type: ComponentType };
+  'component:removed': { id: string; type: ComponentType };
+  [key: string]: any; 
 }
 
 export type EngineAPI = {
@@ -40,9 +56,7 @@ export type EngineAPI = {
   queries: EngineQueries;
 
   subscribe<E extends keyof EngineEvents>(
-    event: E,
-    cb: (payload: EngineEvents[E]) => void
+    event: E | string,
+    cb: (payload: any) => void
   ): () => void;
-
-  subscribe(event: string, cb: (payload: any) => void): () => void;
 };
