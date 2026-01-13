@@ -6,7 +6,6 @@ import { ProceduralGeneration } from './ProceduralGeneration';
 import { MeshTopologyUtils } from './MeshTopologyUtils';
 // @ts-ignore
 import * as THREE from 'three';
-// @ts-ignore
 import { FBXLoader } from 'three-stdlib';
 import { eventBus } from './EventBus';
 
