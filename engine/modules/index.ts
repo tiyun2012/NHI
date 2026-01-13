@@ -5,6 +5,7 @@ import { SceneModule } from '@/features/scene/SceneModule';
 import { CoreModule } from '@/features/core/CoreModule';
 import { HistoryModule } from '@/features/history/HistoryModule';
 import { UIModule } from '@/features/ui/UIModule';
+import { SculptModule } from '@/features/sculpt/SculptModule';
 
 export const MODULES: readonly EngineModule[] = [
   CoreModule,
@@ -12,4 +13,5 @@ export const MODULES: readonly EngineModule[] = [
   SelectionModule,
   HistoryModule,
   UIModule,
+  SculptModule
 ];

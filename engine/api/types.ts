@@ -1,5 +1,7 @@
 
 import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule } from '@/types';
+import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
+import type { SoftSelectionFalloff } from '@/types';
 
 export interface EngineCommands {
   selection: {
@@ -27,6 +29,13 @@ export interface EngineCommands {
   };
   ui: {
     notify(): void;
+  };
+  sculpt: {
+    setEnabled(enabled: boolean): void;
+    setRadius(radius: number): void;
+    setMode(mode: SoftSelectionMode): void;
+    setFalloff(falloff: SoftSelectionFalloff): void;
+    setHeatmapVisible(visible: boolean): void;
   };
 }
 

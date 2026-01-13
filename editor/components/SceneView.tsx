@@ -106,11 +106,11 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
 
     useEffect(() => {
         engineInstance.meshComponentMode = meshComponentMode;
-        engineInstance.softSelectionEnabled = softSelectionEnabled;
-        engineInstance.softSelectionRadius = softSelectionRadius;
-        engineInstance.softSelectionMode = softSelectionMode;
-        engineInstance.softSelectionFalloff = softSelectionFalloff;
-        engineInstance.softSelectionHeatmapVisible = softSelectionHeatmapVisible;
+        engineInstance.deformationSystem.enabled = softSelectionEnabled;
+        engineInstance.deformationSystem.radius = softSelectionRadius;
+        engineInstance.deformationSystem.mode = softSelectionMode;
+        engineInstance.deformationSystem.falloff = softSelectionFalloff;
+        engineInstance.deformationSystem.heatmapVisible = softSelectionHeatmapVisible;
         
         engineInstance.recalculateSoftSelection(); 
     }, [
