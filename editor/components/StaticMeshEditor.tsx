@@ -524,7 +524,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
       
       if (isBrushKeyHeld.current) return;
-      if (e.buttons === 1 && !e.altKey && !dragState && !selectionBoxRef.current && !isAdjustingBrush) {
+
+      const isGizmoActive = !!gizmoSystemRef.current?.activeAxis;
+
+      if (e.buttons === 1 && !e.altKey && !dragState && !selectionBoxRef.current && !isAdjustingBrush && !isGizmoActive) {
            if (meshComponentModeRef.current === 'VERTEX' && previewEngineRef.current) {
                 previewEngineRef.current.selectionSystem.selectVerticesInBrush(mx, my, rect.width, rect.height, !e.ctrlKey);
            }

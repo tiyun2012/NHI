@@ -1,45 +1,29 @@
-import type { EngineAPI } from './EngineAPI';
+
+import type { EngineAPI, EngineEvents } from './types';
 import type { EngineContext } from '@/engine/core/EngineContext';
-import type { SimulationMode, MeshComponentMode } from '@/types';
 
 export function createEngineAPI(ctx: EngineContext): EngineAPI {
   return {
-    commands: {
-      selection: {
-        setSelected(ids: string[]) {
-          ctx.engine.setSelected(ids);
-        },
-        clear() {
-          ctx.engine.setSelected([]);
-        },
-      },
-      simulation: {
-        setMode(mode: SimulationMode) {
-          ctx.engine.simulationMode = mode;
-          ctx.engine.notifyUI();
-        },
-      },
-      mesh: {
-        setComponentMode(mode: MeshComponentMode) {
-          ctx.engine.meshComponentMode = mode;
-          ctx.engine.notifyUI();
-        },
-      },
-    },
-
-    subscribe(event: string, cb: (payload: any) => void) {
-      ctx.events.on(event, cb);
-      return () => ctx.events.off(event, cb);
-    },
-
-    getSelectedIds() {
-      const indices = ctx.engine.selectionSystem.selectedIndices;
-      const ids: string[] = [];
-      indices.forEach((idx: number) => {
-        const id = ctx.engine.ecs.store.ids[idx];
-        if (id) ids.push(id);
-      });
-      return ids;
+    commands: new Proxy({} as any, {
+      get: (_, prop) => {
+        const key = prop as keyof typeof ctx.commands;
+        if (ctx.commands[key]) return ctx.commands[key];
+        console.warn(`Command namespace '${String(key)}' not registered.`);
+        return {};
+      }
+    }),
+    queries: new Proxy({} as any, {
+      get: (_, prop) => {
+        const key = prop as keyof typeof ctx.queries;
+        if (ctx.queries[key]) return ctx.queries[key];
+        console.warn(`Query namespace '${String(key)}' not registered.`);
+        return {};
+      }
+    }),
+    subscribe: <E extends keyof EngineEvents>(event: E, cb: (payload: EngineEvents[E]) => void) => {
+      const typeSafeCb = cb as (payload: any) => void;
+      ctx.events.on(event as string, typeSafeCb);
+      return () => ctx.events.off(event as string, typeSafeCb);
     },
   };
 }

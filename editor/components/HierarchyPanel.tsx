@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Entity, ComponentType } from '@/types';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { Icon } from './Icon';
-import { engineInstance } from '@/engine/engine';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
 
 interface HierarchyPanelProps {
   entities: Entity[];
@@ -33,15 +33,15 @@ const HierarchyItem: React.FC<{
   renameValue: string;
   setRenameValue: (val: string) => void;
   onRenameSubmit: () => void;
+  api: any;
 }> = ({ 
     entityId, entityMap, sceneGraph, selectedIds, onSelect, onContextMenu, depth,
-    renamingId, onRenameStart, renameValue, setRenameValue, onRenameSubmit
+    renamingId, onRenameStart, renameValue, setRenameValue, onRenameSubmit, api
 }) => {
   const [expanded, setExpanded] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const entity = entityMap.get(entityId);
   
-  // Safe default calculations ensuring hooks run unconditionally
   const childrenIds = sceneGraph.getChildren(entityId);
   const hasChildren = childrenIds.length > 0;
   const isSelected = entity ? selectedIds.includes(entity.id) : false;
@@ -54,7 +54,6 @@ const HierarchyItem: React.FC<{
     }
   }, [isRenaming]);
 
-  // Hook-safe early return
   if (!entity) return null;
 
   const handleClick = (e: React.MouseEvent) => {
@@ -78,13 +77,14 @@ const HierarchyItem: React.FC<{
       const childId = e.dataTransfer.getData('text/plain');
       if (!childId) return;
       if (childId === entity.id) return;
+      
       let current = sceneGraph.getParentId(entity.id);
       while (current) {
           if (current === childId) return;
           current = sceneGraph.getParentId(current);
       }
-      sceneGraph.attach(childId, entity.id);
-      engineInstance.notifyUI();
+      
+      api.commands.scene.reparentEntity(childId, entity.id);
   };
 
   return (
@@ -124,7 +124,7 @@ const HierarchyItem: React.FC<{
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter') onRenameSubmit();
-                    if (e.key === 'Escape') onRenameStart('', ''); // Cancel
+                    if (e.key === 'Escape') onRenameStart('', ''); 
                     e.stopPropagation();
                 }}
                 onBlur={onRenameSubmit}
@@ -160,6 +160,7 @@ const HierarchyItem: React.FC<{
               renameValue={renameValue}
               setRenameValue={setRenameValue}
               onRenameSubmit={onRenameSubmit}
+              api={api}
             />
           ))}
         </div>
@@ -177,6 +178,8 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, id: string, visible: boolean } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  
+  const api = useEngineAPI();
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -201,18 +204,20 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
     if (renamingId && renameValue.trim()) {
         const entity = entityMap.get(renamingId);
         if (entity && entity.name !== renameValue) {
-             engineInstance.pushUndoState();
-             entity.name = renameValue;
-             engineInstance.notifyUI();
+             api.commands.scene.renameEntity(renamingId, renameValue);
         }
     }
     setRenamingId(null);
   };
 
   const deleteEntity = (id: string) => {
-    engineInstance.deleteEntity(id, engineInstance.sceneGraph);
+    api.commands.scene.deleteEntity(id);
     onSelect([]);
     setContextMenu(null);
+  };
+
+  const handleCreateEntity = () => {
+      api.commands.scene.createEntity('New Object');
   };
 
   return (
@@ -223,8 +228,6 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
             <input 
                 type="text" 
                 placeholder="Search..." 
-                aria-label="Search Hierarchy"
-                title="Search Hierarchy"
                 className="w-full bg-black/40 text-xs py-1 pl-7 pr-2 rounded outline-none border border-transparent focus:border-accent text-white placeholder:text-white/20 transition-all" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -233,11 +236,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
         <button 
             className="p-1.5 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-colors"
             title="Create Empty Entity"
-            onClick={() => {
-                const id = engineInstance.ecs.createEntity('New Object');
-                engineInstance.sceneGraph.registerEntity(id);
-                engineInstance.notifyUI();
-            }}
+            onClick={handleCreateEntity}
         >
             <Icon name="Plus" size={14} />
         </button>
@@ -252,8 +251,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
                 e.preventDefault();
                 const childId = e.dataTransfer.getData('text/plain');
                 if (!childId) return;
-                sceneGraph.attach(childId, null);
-                engineInstance.notifyUI();
+                api.commands.scene.reparentEntity(childId, null);
             }}
         >
             <Icon name="Cuboid" size={12} />
@@ -276,6 +274,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
                   renameValue={renameValue}
                   setRenameValue={setRenameValue}
                   onRenameSubmit={handleRenameSubmit}
+                  api={api}
                 />
             ))}
         </div>
