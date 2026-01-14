@@ -7,6 +7,9 @@ export interface EngineCommands {
   selection: {
     setSelected(ids: readonly string[]): void;
     clear(): void;
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
+    clearSubSelection(): void;
+    selectLoop(mode: MeshComponentMode): void;
   };
   simulation: {
     setMode(mode: SimulationMode): void;
@@ -57,6 +60,7 @@ export interface EngineEvents {
   'scene:entityRenamed': { id: string; name: string };
   'component:added': { id: string; type: ComponentType };
   'component:removed': { id: string; type: ComponentType };
+  [key: string]: any; 
 }
 
 export type EngineAPI = {

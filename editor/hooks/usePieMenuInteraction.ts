@@ -1,7 +1,9 @@
+
 import { useState, useCallback } from 'react';
 import { engineInstance } from '@/engine/engine';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { ToolType, MeshComponentMode } from '@/types';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
 
 interface UsePieMenuProps {
     sceneGraph: SceneGraph;
@@ -23,6 +25,7 @@ export const usePieMenuInteraction = ({
     handleModeSelect
 }: UsePieMenuProps) => {
     const [pieMenuState, setPieMenuState] = useState<{ x: number, y: number, entityId?: string } | null>(null);
+    const api = useEngineAPI();
 
     const openPieMenu = useCallback((x: number, y: number, entityId?: string) => {
         setPieMenuState({ x, y, entityId });
@@ -38,7 +41,9 @@ export const usePieMenuInteraction = ({
             if (mode === 'FACE' && subSelection.faceIds.size < 2) return;
             setMeshComponentMode(mode);
             engineInstance.meshComponentMode = mode;
-            engineInstance.selectLoop(mode);
+            
+            // Use Command
+            api.commands.selection.selectLoop(mode);
         };
 
         // Tools
@@ -75,7 +80,7 @@ export const usePieMenuInteraction = ({
         if (action === 'loop_face') handleLoopSelect('FACE');
 
         closePieMenu();
-    }, [selectedIds, sceneGraph, onSelect, setTool, setMeshComponentMode, handleFocus, handleModeSelect, closePieMenu]);
+    }, [selectedIds, sceneGraph, onSelect, setTool, setMeshComponentMode, handleFocus, handleModeSelect, closePieMenu, api]);
 
     return {
         pieMenuState,

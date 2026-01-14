@@ -10,10 +10,23 @@ export const SelectionModule: EngineModule = {
     registerCommands(ctx, 'selection', {
       setSelected(ids) {
         ctx.engine.setSelected([...ids]);
-        // Keep editor UI + soft-selection in sync
         if (ctx.engine.softSelectionEnabled) ctx.engine.recalculateSoftSelection(true);
         ctx.engine.notifyUI();
         ctx.events.emit(SELECTION_CHANGED, { ids: [...ids] });
+      },
+      modifySubSelection(type, ids, action) {
+        ctx.engine.selectionSystem.modifySubSelection(type, ids, action);
+        ctx.engine.notifyUI();
+      },
+      clearSubSelection() {
+        ctx.engine.selectionSystem.subSelection.vertexIds.clear();
+        ctx.engine.selectionSystem.subSelection.edgeIds.clear();
+        ctx.engine.selectionSystem.subSelection.faceIds.clear();
+        ctx.engine.recalculateSoftSelection(true);
+        ctx.engine.notifyUI();
+      },
+      selectLoop(mode) {
+        ctx.engine.selectionSystem.selectLoop(mode);
       },
       clear() {
         ctx.engine.setSelected([]);

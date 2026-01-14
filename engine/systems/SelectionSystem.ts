@@ -34,6 +34,40 @@ export class SelectionSystem {
         this.engine.recalculateSoftSelection(); 
     }
 
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') {
+        this.engine.clearDeformation(); 
+
+        let targetSet: Set<any>;
+        let validIds: any[];
+
+        if (type === 'VERTEX') {
+            targetSet = this.subSelection.vertexIds;
+            validIds = ids.filter(id => typeof id === 'number');
+        } else if (type === 'EDGE') {
+            targetSet = this.subSelection.edgeIds;
+            validIds = ids.filter(id => typeof id === 'string');
+        } else {
+            targetSet = this.subSelection.faceIds;
+            validIds = ids.filter(id => typeof id === 'number');
+        }
+
+        if (action === 'SET') {
+            targetSet.clear();
+            validIds.forEach(id => targetSet.add(id));
+        } else if (action === 'ADD') {
+            validIds.forEach(id => targetSet.add(id));
+        } else if (action === 'REMOVE') {
+            validIds.forEach(id => targetSet.delete(id));
+        } else if (action === 'TOGGLE') {
+            validIds.forEach(id => {
+                if (targetSet.has(id)) targetSet.delete(id);
+                else targetSet.add(id);
+            });
+        }
+
+        this.engine.recalculateSoftSelection(true);
+    }
+
     selectEntityAt(mx: number, my: number, width: number, height: number): string | null {
         if (!this.engine.currentViewProj) return null;
         
@@ -52,7 +86,6 @@ export class SelectionSystem {
             const mask = this.engine.ecs.store.componentMask[i];
             const hasMesh = !!(mask & COMPONENT_MASKS.MESH);
             
-            // Only check non-mesh components if they are visible/selectable types
             if (!hasMesh && !((mask & COMPONENT_MASKS.LIGHT) || (mask & COMPONENT_MASKS.PARTICLE_SYSTEM) || (mask & COMPONENT_MASKS.VIRTUAL_PIVOT))) continue;
 
             const id = this.engine.ecs.store.ids[i];
@@ -400,7 +433,7 @@ export class SelectionSystem {
             const verts2 = topo.faces[f2];
             const shared = verts1.filter(v => verts2.includes(v));
             
-            if (shared.length >= 2) { // 2 shared vertices = shared edge
+            if (shared.length >= 2) { 
                 const loop = MeshTopologyUtils.getFaceLoop(topo, shared[0], shared[1]);
                 loop.forEach(f => this.subSelection.faceIds.add(f));
                 consoleService.success(`Selected Face Loop`, "SelectionSystem");
