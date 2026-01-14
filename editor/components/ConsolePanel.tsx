@@ -5,14 +5,15 @@ import { consoleService, LogEntry, LogType } from '@/engine/Console';
 
 export const ConsolePanel: React.FC = () => {
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [logFilter, setLogFilter] = useState<'ALL' | 'ERROR' | 'WARN' | 'INFO'>('ALL');
+    const [logFilter, setLogFilter] = useState<'ALL' | 'ERROR' | 'WARN' | 'INFO' | 'CMD'>('ALL');
     const [logSearch, setLogSearch] = useState('');
     const logsEndRef = useRef<HTMLDivElement>(null);
 
     const filteredLogs = logs.filter(l => {
         if (logFilter === 'ERROR' && l.type !== 'error') return false;
         if (logFilter === 'WARN' && l.type !== 'warn') return false;
-        if (logFilter === 'INFO' && (l.type === 'error' || l.type === 'warn')) return false;
+        if (logFilter === 'CMD' && l.type !== 'command') return false;
+        if (logFilter === 'INFO' && (l.type === 'error' || l.type === 'warn' || l.type === 'command')) return false;
         if (logSearch && !l.message.toLowerCase().includes(logSearch.toLowerCase())) return false;
         return true;
     });
@@ -36,7 +37,18 @@ export const ConsolePanel: React.FC = () => {
             case 'error': return <Icon name="AlertCircle" size={14} className="text-red-500" />;
             case 'warn': return <Icon name="AlertTriangle" size={14} className="text-yellow-500" />;
             case 'success': return <Icon name="CheckCircle2" size={14} className="text-green-500" />;
+            case 'command': return <Icon name="ChevronRight" size={14} className="text-cyan-400" />;
             default: return <Icon name="Info" size={14} className="text-blue-400" />;
+        }
+    };
+
+    const getLogColor = (type: LogType) => {
+        switch(type) {
+            case 'error': return 'text-red-400';
+            case 'warn': return 'text-yellow-400';
+            case 'success': return 'text-emerald-400';
+            case 'command': return 'text-cyan-400 font-mono';
+            default: return 'text-text-primary';
         }
     };
 
@@ -44,7 +56,6 @@ export const ConsolePanel: React.FC = () => {
         <div className="h-full bg-panel flex flex-col font-sans border-t border-black/20">
             <div className="flex items-center justify-between bg-panel-header px-2 py-1 border-b border-black/20 h-9 shrink-0">
                 <div className="flex gap-2">
-                    {/* Optional: Status summary or left-aligned controls */}
                     <div className="flex items-center gap-2 text-[10px] font-mono opacity-70 ml-2">
                         {logs.filter(l => l.type === 'error').length > 0 && (
                             <span className="text-red-400 flex items-center gap-1"><Icon name="AlertCircle" size={10} /> {logs.filter(l => l.type === 'error').length}</span>
@@ -57,6 +68,7 @@ export const ConsolePanel: React.FC = () => {
                 <div className="flex items-center gap-2">
                     <div className="flex bg-black/40 rounded p-0.5 border border-white/5">
                         <button onClick={() => setLogFilter('ALL')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'ALL' ? 'bg-white/20 text-white' : 'text-text-secondary hover:text-white'}`}>All</button>
+                        <button onClick={() => setLogFilter('CMD')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'CMD' ? 'bg-cyan-500/20 text-cyan-400' : 'text-text-secondary hover:text-white'}`}>Cmds</button>
                         <button onClick={() => setLogFilter('ERROR')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'ERROR' ? 'bg-red-500/20 text-red-400' : 'text-text-secondary hover:text-white'}`}>Errors</button>
                         <button onClick={() => setLogFilter('WARN')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'WARN' ? 'bg-yellow-500/20 text-yellow-400' : 'text-text-secondary hover:text-white'}`}>Warnings</button>
                     </div>
@@ -90,7 +102,7 @@ export const ConsolePanel: React.FC = () => {
                             <div className="flex-1 break-all">
                                 <span className="text-[10px] text-white/30 mr-2 select-none">{new Date(log.timestamp).toLocaleTimeString()}</span>
                                 {log.source && <span className="text-[10px] text-white/50 mr-2 uppercase font-bold tracking-wider select-none">[{log.source}]</span>}
-                                <span className={log.type === 'error' ? 'text-red-400' : (log.type === 'warn' ? 'text-yellow-400' : (log.type === 'success' ? 'text-emerald-400' : 'text-text-primary'))}>
+                                <span className={getLogColor(log.type)}>
                                     {log.message}
                                 </span>
                                 {log.count > 1 && (

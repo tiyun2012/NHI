@@ -1,6 +1,7 @@
 
 import type { EngineAPI, EngineCommands, EngineQueries, EngineEvents } from './types';
 import type { EngineContext } from '@/engine/core/EngineContext';
+import { consoleService } from '@/engine/Console';
 
 function createMissingProxy(path: string) {
   const fn = () => {
@@ -18,7 +19,7 @@ function createMissingProxy(path: string) {
   });
 }
 
-function createRegistryProxy<T extends object>(label: string, src: () => any): T {
+function createRegistryProxy<T extends object>(label: string, src: () => any, logCalls: boolean = false): T {
   return new Proxy(
     {},
     {
@@ -26,6 +27,38 @@ function createRegistryProxy<T extends object>(label: string, src: () => any): T
         if (typeof prop !== 'string') return undefined;
         const val = src()?.[prop];
         if (!val) return createMissingProxy(`${label}.${prop}`);
+
+        // Inject logger for commands to facilitate debugging and scripting
+        if (logCalls && typeof val === 'object' && val !== null) {
+            return new Proxy(val, {
+                get(target, method) {
+                    const fn = target[method as keyof typeof target];
+                    if (typeof fn === 'function') {
+                        return (...args: any[]) => {
+                            // Serialize arguments for logging
+                            let argsStr = '';
+                            try {
+                                argsStr = args.map(a => JSON.stringify(a)).join(', ');
+                            } catch (e) {
+                                argsStr = '...';
+                            }
+
+                            const cmdStr = `api.commands.${String(prop)}.${String(method)}(${argsStr})`;
+
+                            // 1. Browser Console (Executable Style)
+                            console.log(`%c${cmdStr}`, 'color: #00bcd4; font-family: monospace; font-weight: bold;');
+                            
+                            // 2. In-App Console (History)
+                            consoleService.cmd(cmdStr);
+
+                            return (fn as Function).apply(this, args);
+                        };
+                    }
+                    return fn;
+                }
+            });
+        }
+
         return val;
       },
     }
@@ -34,8 +67,9 @@ function createRegistryProxy<T extends object>(label: string, src: () => any): T
 
 
 export function createEngineAPI(ctx: EngineContext): EngineAPI {
-  const commands = createRegistryProxy<EngineCommands>('commands', () => ctx.commands);
-  const queries = createRegistryProxy<EngineQueries>('queries', () => ctx.queries);
+  // Enable logging for commands (true) but not queries (false)
+  const commands = createRegistryProxy<EngineCommands>('commands', () => ctx.commands, true);
+  const queries = createRegistryProxy<EngineQueries>('queries', () => ctx.queries, false);
 
   return {
     commands,

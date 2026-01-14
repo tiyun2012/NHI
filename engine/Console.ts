@@ -1,5 +1,5 @@
 
-export type LogType = 'info' | 'warn' | 'error' | 'success';
+export type LogType = 'info' | 'warn' | 'error' | 'success' | 'command';
 
 export interface LogEntry {
     id: string;
@@ -97,6 +97,7 @@ class ConsoleService {
     warn(msg: string, source: string = 'Editor') { this.log(msg, 'warn', source); }
     error(msg: string, source: string = 'Editor') { this.log(msg, 'error', source); }
     success(msg: string, source: string = 'Editor') { this.log(msg, 'success', source); }
+    cmd(msg: string, source: string = 'API') { this.log(msg, 'command', source); }
 
     clear() {
         this.logs = [];
