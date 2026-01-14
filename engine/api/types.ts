@@ -6,6 +6,25 @@ import type { SoftSelectionFalloff } from '@/types';
 export interface EngineCommands {
   selection: {
     setSelected(ids: readonly string[]): void;
+    
+    /**
+     * Modify the sub-object selection (Vertices, Edges, Faces).
+     * @param type - The component type ('VERTEX', 'EDGE', 'FACE')
+     * @param ids - Array of indices (for vertex/face) or keys (for edge 'v1-v2')
+     * @param action - 'SET' (replace), 'ADD' (union), 'REMOVE' (subtract), 'TOGGLE' (xor)
+     */
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
+    
+    /**
+     * Clear all sub-object selection.
+     */
+    clearSubSelection(): void;
+
+    /**
+     * Perform a loop selection based on current selection state.
+     */
+    selectLoop(mode: MeshComponentMode): void;
+    
     clear(): void;
   };
   simulation: {

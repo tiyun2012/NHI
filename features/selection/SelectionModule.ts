@@ -11,6 +11,20 @@ export const SelectionModule: EngineModule = {
         ctx.engine.setSelected([...ids]);
         ctx.events.emit('selection:changed', { ids: [...ids] });
       },
+      modifySubSelection(type, ids, action) {
+        ctx.engine.selectionSystem.modifySubSelection(type, ids, action);
+        ctx.engine.notifyUI();
+      },
+      clearSubSelection() {
+        ctx.engine.selectionSystem.subSelection.vertexIds.clear();
+        ctx.engine.selectionSystem.subSelection.edgeIds.clear();
+        ctx.engine.selectionSystem.subSelection.faceIds.clear();
+        ctx.engine.recalculateSoftSelection(true);
+        ctx.engine.notifyUI();
+      },
+      selectLoop(mode) {
+        ctx.engine.selectionSystem.selectLoop(mode);
+      },
       clear() {
         ctx.engine.setSelected([]);
         ctx.events.emit('selection:changed', { ids: [] });

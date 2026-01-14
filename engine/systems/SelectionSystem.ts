@@ -34,6 +34,34 @@ export class SelectionSystem {
         this.engine.recalculateSoftSelection(); 
     }
 
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') {
+        this.engine.clearDeformation(); // Always clear deformation state before changing selection
+
+        const targetSet = (type === 'VERTEX' ? this.subSelection.vertexIds 
+                        : type === 'EDGE' ? this.subSelection.edgeIds 
+                        : this.subSelection.faceIds) as Set<any>;
+
+        if (action === 'SET') {
+            targetSet.clear();
+            ids.forEach(id => targetSet.add(id));
+        } else if (action === 'ADD') {
+            ids.forEach(id => targetSet.add(id));
+        } else if (action === 'REMOVE') {
+            ids.forEach(id => targetSet.delete(id));
+        } else if (action === 'TOGGLE') {
+            ids.forEach(id => {
+                if (targetSet.has(id)) targetSet.delete(id);
+                else targetSet.add(id);
+            });
+        }
+
+        // If switching modes implicitly, clear others? (Optional, usually handled by setMeshComponentMode)
+        // Ideally we keep them separate to allow mode switching without losing selection, 
+        // but for now we trust the caller to manage mode consistency.
+
+        this.engine.recalculateSoftSelection(true);
+    }
+
     selectEntityAt(mx: number, my: number, width: number, height: number): string | null {
         if (!this.engine.currentViewProj) return null;
         
