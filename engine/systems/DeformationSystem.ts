@@ -32,17 +32,20 @@ export class DeformationSystem {
     private sceneGraph!: SceneGraph;
     private selectionSystem!: SelectionSystem;
     private meshSystem!: MeshRenderSystem;
+    private onNotifyUI?: () => void;
 
     init(
         ecs: { store: ComponentStorage, idToIndex: Map<string, number> },
         sceneGraph: SceneGraph,
         selectionSystem: SelectionSystem,
-        meshSystem: MeshRenderSystem
+        meshSystem: MeshRenderSystem,
+        onNotifyUI?: () => void
     ) {
         this.ecs = ecs;
         this.sceneGraph = sceneGraph;
         this.selectionSystem = selectionSystem;
         this.meshSystem = meshSystem;
+        this.onNotifyUI = onNotifyUI;
     }
 
     recalculateSoftSelection(trigger: boolean = true, meshComponentMode: MeshComponentMode = 'VERTEX') {

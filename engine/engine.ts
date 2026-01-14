@@ -392,7 +392,8 @@ export class Engine {
             this.ecs, 
             this.sceneGraph, 
             this.selectionSystem, 
-            this.meshSystem
+            this.meshSystem, 
+            () => this.notifyUI()
         );
         
         if (this.renderer.gl) {

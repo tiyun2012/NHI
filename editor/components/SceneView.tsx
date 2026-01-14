@@ -16,7 +16,6 @@ import { StaticMeshAsset } from '@/types';
 import { consoleService } from '@/engine/Console';
 import { useBrushInteraction } from '@/editor/hooks/useBrushInteraction';
 import { usePieMenuInteraction } from '@/editor/hooks/usePieMenuInteraction';
-import { useEngineAPI } from '@/engine/api/EngineProvider';
 
 interface SceneViewProps {
   entities: Entity[];
@@ -35,7 +34,6 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
     } = useContext(EditorContext)!;
     
     const containerRef = useRef<HTMLDivElement>(null);
-    const api = useEngineAPI();
 
     // --- HOOKS ---
     const { isAdjustingBrush, isBrushKeyHeld } = useBrushInteraction({
@@ -102,6 +100,9 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         handleFocus,
         handleModeSelect
     });
+
+    // Mesh component mode is now handled via API command in App.tsx
+    // Soft selection state is now handled via API command in App.tsx
     
     const viewportSize = useViewportSize(containerRef, { dprCap: 2 });
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -247,22 +248,31 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                 const result = engineInstance.selectionSystem.pickMeshComponent(selectedIds[0], mx, my, rect.width, rect.height);
                 
                 if (result) {
-                    // API Call handles clearDeformation internally if state changes
+                    engineInstance.clearDeformation(); 
                     componentHit = true;
                     
                     if (!e.shiftKey) {
-                         api.commands.selection.clearSubSelection();
+                        engineInstance.selectionSystem.subSelection.vertexIds.clear();
+                        engineInstance.selectionSystem.subSelection.edgeIds.clear();
+                        engineInstance.selectionSystem.subSelection.faceIds.clear();
                     }
 
                     if (meshComponentMode === 'VERTEX') {
-                        api.commands.selection.modifySubSelection('VERTEX', [result.vertexId], 'TOGGLE');
+                        const id = result.vertexId;
+                        if (engineInstance.selectionSystem.subSelection.vertexIds.has(id)) engineInstance.selectionSystem.subSelection.vertexIds.delete(id);
+                        else engineInstance.selectionSystem.subSelection.vertexIds.add(id);
                     } else if (meshComponentMode === 'EDGE') {
                         const id = result.edgeId.sort((a,b)=>a-b).join('-');
-                        api.commands.selection.modifySubSelection('EDGE', [id], 'TOGGLE');
+                        if (engineInstance.selectionSystem.subSelection.edgeIds.has(id)) engineInstance.selectionSystem.subSelection.edgeIds.delete(id);
+                        else engineInstance.selectionSystem.subSelection.edgeIds.add(id);
                     } else if (meshComponentMode === 'FACE') {
-                        api.commands.selection.modifySubSelection('FACE', [result.faceId], 'TOGGLE');
+                        const id = result.faceId;
+                        if (engineInstance.selectionSystem.subSelection.faceIds.has(id)) engineInstance.selectionSystem.subSelection.faceIds.delete(id);
+                        else engineInstance.selectionSystem.subSelection.faceIds.add(id);
                     }
                     
+                    engineInstance.recalculateSoftSelection(); 
+                    engineInstance.notifyUI();
                     return;
                 }
             }

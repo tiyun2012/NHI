@@ -34,42 +34,6 @@ export class SelectionSystem {
         this.engine.recalculateSoftSelection(); 
     }
 
-    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') {
-        this.engine.clearDeformation(); // Always clear deformation state before changing selection
-
-        let targetSet: Set<any>;
-        let validIds: any[];
-
-        // Strict type filtering to prevent corrupting Sets (e.g. adding strings to vertexIds)
-        if (type === 'VERTEX') {
-            targetSet = this.subSelection.vertexIds;
-            validIds = ids.filter(id => typeof id === 'number');
-        } else if (type === 'EDGE') {
-            targetSet = this.subSelection.edgeIds;
-            validIds = ids.filter(id => typeof id === 'string');
-        } else {
-            targetSet = this.subSelection.faceIds;
-            validIds = ids.filter(id => typeof id === 'number');
-        }
-
-        if (action === 'SET') {
-            targetSet.clear();
-            validIds.forEach(id => targetSet.add(id));
-        } else if (action === 'ADD') {
-            validIds.forEach(id => targetSet.add(id));
-        } else if (action === 'REMOVE') {
-            validIds.forEach(id => targetSet.delete(id));
-        } else if (action === 'TOGGLE') {
-            validIds.forEach(id => {
-                if (targetSet.has(id)) targetSet.delete(id);
-                else targetSet.add(id);
-            });
-        }
-
-        // Trigger soft selection update via Engine interface
-        this.engine.recalculateSoftSelection(true);
-    }
-
     selectEntityAt(mx: number, my: number, width: number, height: number): string | null {
         if (!this.engine.currentViewProj) return null;
         
@@ -278,6 +242,10 @@ export class SelectionSystem {
         this.hoveredVertex = null;
     }
 
+    /**
+     * Marquee selection for vertices in the currently selected mesh.
+     * Returns the list of vertex indices whose projected screen position overlaps the rect.
+     */
     selectVerticesInRect(x: number, y: number, w: number, h: number): number[] {
         if (this.engine.meshComponentMode !== 'VERTEX' || this.selectedIndices.size === 0 || !this.engine.currentViewProj) return [];
 
@@ -405,6 +373,8 @@ export class SelectionSystem {
                 consoleService.warn('Select at least 2 vertices to define loop direction', "SelectionSystem");
                 return;
             }
+            // Sort by insertion order is not guaranteed in Set but usually stable. 
+            // Better to assume user clicked last two.
             const v1 = verts[verts.length - 2];
             const v2 = verts[verts.length - 1];
             const key = [v1, v2].sort((a,b)=>a-b).join('-');
@@ -430,7 +400,7 @@ export class SelectionSystem {
             const verts2 = topo.faces[f2];
             const shared = verts1.filter(v => verts2.includes(v));
             
-            if (shared.length >= 2) { 
+            if (shared.length >= 2) { // 2 shared vertices = shared edge
                 const loop = MeshTopologyUtils.getFaceLoop(topo, shared[0], shared[1]);
                 loop.forEach(f => this.subSelection.faceIds.add(f));
                 consoleService.success(`Selected Face Loop`, "SelectionSystem");

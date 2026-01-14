@@ -28,7 +28,6 @@ export enum ComponentType {
 export interface IEngine {
     ecs: any; // SoAEntitySystem
     sceneGraph: any; // SceneGraph
-    selectionSystem: any; // SelectionSystem
     currentViewProj: Float32Array | null;
     currentCameraPos: { x: number, y: number, z: number };
     currentWidth: number;

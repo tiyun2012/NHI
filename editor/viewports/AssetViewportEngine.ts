@@ -113,7 +113,8 @@ export class AssetViewportEngine implements IEngine {
             this.ecs,
             this.sceneGraph,
             this.selectionSystem,
-            this.meshSystem
+            this.meshSystem,
+            () => this.notifyUI()
         );
 
         if (this.previewEntityId) {

@@ -8,7 +8,8 @@ export const CoreModule: EngineModule = {
   init(ctx) {
     registerCommands(ctx, 'simulation', {
       setMode(mode) {
-        ctx.engine.start(mode);
+        if (mode === 'STOPPED') ctx.engine.stop();
+        else ctx.engine.start(mode);
         ctx.events.emit('simulation:modeChanged', { mode });
       }
     });
