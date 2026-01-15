@@ -5,6 +5,40 @@ import { SceneGraph } from '@/engine/SceneGraph';
 import { ToolType, MeshComponentMode } from '@/types';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
 
+export interface InteractionAPI {
+    selection: {
+        selectLoop: (mode: MeshComponentMode) => void;
+        modifySubSelection: (type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') => void;
+        setSelected: (ids: string[]) => void;
+        clear: () => void;
+        selectInRect: (rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE') => void;
+    };
+    mesh: {
+        setComponentMode: (mode: MeshComponentMode) => void;
+    };
+    scene: {
+        deleteEntity: (id: string) => void;
+        duplicateEntity: (id: string) => void;
+        reparentEntity?: (childId: string, parentId: string | null) => void;
+        renameEntity?: (id: string, name: string) => void;
+        createEntity?: (name: string) => void;
+        addComponent?: (id: string, type: string) => void;
+        removeComponent?: (id: string, type: string) => void;
+    };
+    modeling: {
+        extrudeFaces: () => void;
+        bevelEdges: () => void;
+        weldVertices: () => void;
+        connectComponents: () => void;
+        deleteSelectedFaces: () => void;
+    };
+    sculpt?: {
+        setEnabled: (enabled: boolean) => void;
+        setRadius: (radius: number) => void;
+        setHeatmapVisible: (visible: boolean) => void;
+    };
+}
+
 interface UsePieMenuProps {
     sceneGraph: SceneGraph;
     selectedIds: string[];
@@ -13,6 +47,7 @@ interface UsePieMenuProps {
     setMeshComponentMode: (mode: MeshComponentMode) => void;
     handleFocus: () => void;
     handleModeSelect: (modeId: number) => void;
+    api?: InteractionAPI; // Optional override
 }
 
 export const usePieMenuInteraction = ({
@@ -22,10 +57,14 @@ export const usePieMenuInteraction = ({
     setTool,
     setMeshComponentMode,
     handleFocus,
-    handleModeSelect
+    handleModeSelect,
+    api: providedApi
 }: UsePieMenuProps) => {
     const [pieMenuState, setPieMenuState] = useState<{ x: number, y: number, entityId?: string } | null>(null);
-    const api = useEngineAPI();
+    const globalApi = useEngineAPI();
+    
+    // Use provided API or fallback to global
+    const api = providedApi || globalApi.commands;
 
     const openPieMenu = useCallback((x: number, y: number, entityId?: string) => {
         setPieMenuState({ x, y, entityId });
@@ -35,15 +74,13 @@ export const usePieMenuInteraction = ({
 
     const handlePieAction = useCallback((action: string) => {
         const handleLoopSelect = (mode: MeshComponentMode) => {
-            const subSelection = engineInstance.selectionSystem.subSelection;
-            if (mode === 'VERTEX' && subSelection.vertexIds.size < 2) return;
-            if (mode === 'EDGE' && subSelection.edgeIds.size < 1) return;
-            if (mode === 'FACE' && subSelection.faceIds.size < 2) return;
-            setMeshComponentMode(mode);
-            engineInstance.meshComponentMode = mode;
+            // We assume the engine instance is relevant to the context, 
+            // but for loop selection specifically, it relies on global engine.selectionSystem currently.
+            // If using a local engine, the API implementation should handle the redirection.
             
-            // Use Command
-            api.commands.selection.selectLoop(mode);
+            setMeshComponentMode(mode);
+            api.mesh.setComponentMode(mode);
+            api.selection.selectLoop(mode);
         };
 
         // Tools
@@ -53,26 +90,26 @@ export const usePieMenuInteraction = ({
         if (action === 'tool_scale') setTool('SCALE');
         
         // View
-        if (action === 'toggle_grid') engineInstance.toggleGrid();
+        if (action === 'toggle_grid') engineInstance.toggleGrid(); // Global toggle for now (or make API)
         if (action === 'toggle_wire') handleModeSelect(3); 
         if (action === 'reset_cam') handleFocus();
         if (action === 'focus') handleFocus();
 
         // Object Operations
         if (action === 'delete') { 
-            selectedIds.forEach(id => engineInstance.deleteEntity(id, sceneGraph)); 
+            selectedIds.forEach(id => api.scene.deleteEntity(id)); 
             onSelect([]); 
         }
         if (action === 'duplicate') { 
-            selectedIds.forEach(id => engineInstance.duplicateEntity(id)); 
+            selectedIds.forEach(id => api.scene.duplicateEntity(id)); 
         }
 
         // Modeling Operations
-        if (action === 'extrude') engineInstance.extrudeFaces();
-        if (action === 'bevel') engineInstance.bevelEdges();
-        if (action === 'weld') engineInstance.weldVertices();
-        if (action === 'connect') engineInstance.connectComponents();
-        if (action === 'delete_face') engineInstance.deleteSelectedFaces();
+        if (action === 'extrude') api.modeling.extrudeFaces();
+        if (action === 'bevel') api.modeling.bevelEdges();
+        if (action === 'weld') api.modeling.weldVertices();
+        if (action === 'connect') api.modeling.connectComponents();
+        if (action === 'delete_face') api.modeling.deleteSelectedFaces();
 
         // --- PROTECTED SELECTION LOOPS ---
         if (action === 'loop_vert') handleLoopSelect('VERTEX');
@@ -84,7 +121,7 @@ export const usePieMenuInteraction = ({
 
     return {
         pieMenuState,
-        setPieMenuState, // Expose setter if needed for manual close/overrides
+        setPieMenuState,
         openPieMenu,
         closePieMenu,
         handlePieAction

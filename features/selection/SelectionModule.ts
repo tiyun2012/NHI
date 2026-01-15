@@ -28,6 +28,34 @@ export const SelectionModule: EngineModule = {
       selectLoop(mode) {
         ctx.engine.selectionSystem.selectLoop(mode);
       },
+      selectInRect(rect, mode, action) {
+        if (mode === 'OBJECT') {
+            const hits = ctx.engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
+            
+            let finalIds = hits;
+            if (action === 'ADD') {
+                // For OBJECT mode, ADD behaves as union
+                const current = Array.from(ctx.engine.selectionSystem.selectedIndices)
+                    .map(idx => ctx.engine.ecs.store.ids[idx]);
+                finalIds = Array.from(new Set([...current, ...hits]));
+            }
+            
+            ctx.engine.setSelected(finalIds);
+            ctx.events.emit(SELECTION_CHANGED, { ids: finalIds });
+        } 
+        else if (mode === 'VERTEX') {
+            // For components, we rely on modifySubSelection to handle the set logic
+            const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
+            if (indices.length > 0) {
+                ctx.engine.selectionSystem.modifySubSelection('VERTEX', indices, action === 'ADD' ? 'ADD' : 'SET');
+            } else if (action === 'SET') {
+                ctx.engine.selectionSystem.modifySubSelection('VERTEX', [], 'SET');
+            }
+        }
+        // TODO: Implement EDGE/FACE marquee support in SelectionSystem
+        
+        ctx.engine.notifyUI();
+      },
       clear() {
         ctx.engine.setSelected([]);
         if (ctx.engine.softSelectionEnabled) ctx.engine.recalculateSoftSelection(true);

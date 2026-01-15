@@ -7,7 +7,7 @@ import { assetManager } from '@/engine/AssetManager';
 import { COMPONENT_MASKS } from '@/engine/constants';
 import { MeshRenderSystem } from '@/engine/systems/MeshRenderSystem';
 import { DeformationSystem, SoftSelectionMode } from '@/engine/systems/DeformationSystem';
-import { eventBus } from '@/engine/EventBus';
+import { consoleService } from '@/engine/Console';
 
 type GizmoRendererFacade = {
     renderGizmos: (
@@ -51,20 +51,11 @@ export class AssetViewportEngine implements IEngine {
     // Local entity holding the preview mesh
     private previewEntityId: string | null = null;
 
-    // Cross-viewport synchronization
-    private emitAssetEvents: boolean = true;
-    private emitDuringDrag: boolean = false;
-    private pendingEmit: { id: string; type: 'MESH' | 'SKELETAL_MESH' } | null = null;
-    private pendingEmitRaf: number | null = null;
-
     constructor(
         private onNotifyUI?: () => void,
         private onGeometryUpdated?: (assetId: string) => void,
-        private onGeometryFinalized?: (assetId: string) => void,
-        opts?: { emitAssetEvents?: boolean; emitDuringDrag?: boolean },
+        private onGeometryFinalized?: (assetId: string) => void
     ) {
-        this.emitAssetEvents = opts?.emitAssetEvents ?? true;
-        this.emitDuringDrag = opts?.emitDuringDrag ?? false;
         this.sceneGraph.setContext(this.ecs);
         this.selectionSystem = new SelectionSystem(this);
         this.deformationSystem = new DeformationSystem();
@@ -198,6 +189,17 @@ export class AssetViewportEngine implements IEngine {
     notifyUI() { this.onNotifyUI?.(); }
 
     pushUndoState() {}
+
+    selectLoop(mode: MeshComponentMode) {
+        this.selectionSystem.selectLoop(mode);
+        this.notifyUI();
+    }
+
+    extrudeFaces() { consoleService.warn("Local Extrude: Not implemented"); }
+    bevelEdges() { consoleService.warn("Local Bevel: Not implemented"); }
+    weldVertices() { consoleService.warn("Local Weld: Not implemented"); }
+    connectComponents() { consoleService.warn("Local Connect: Not implemented"); }
+    deleteSelectedFaces() { consoleService.warn("Local Delete Face: Not implemented"); }
 
     render(time: number, renderMode: number) {
         if (!this.currentViewProj) return;

@@ -10,6 +10,13 @@ export interface EngineCommands {
     modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
     clearSubSelection(): void;
     selectLoop(mode: MeshComponentMode): void;
+    /**
+     * stable Marquee Selection API
+     * @param rect Screen space rectangle {x, y, w, h}
+     * @param mode Current interaction mode (OBJECT, VERTEX, etc)
+     * @param action Selection modifier (SET, ADD, REMOVE)
+     */
+    selectInRect(rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE'): void;
   };
   simulation: {
     setMode(mode: SimulationMode): void;
@@ -20,10 +27,18 @@ export interface EngineCommands {
   scene: {
     createEntity(name: string): string;
     deleteEntity(id: string): void;
+    duplicateEntity(id: string): void;
     renameEntity(id: string, name: string): void;
     reparentEntity(childId: string, parentId: string | null): void;
     addComponent(id: string, type: string): void;
     removeComponent(id: string, type: string): void;
+  };
+  modeling: {
+    extrudeFaces(): void;
+    bevelEdges(): void;
+    weldVertices(): void;
+    connectComponents(): void;
+    deleteSelectedFaces(): void;
   };
   history: {
     pushState(): void;

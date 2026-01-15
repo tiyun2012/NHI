@@ -21,6 +21,11 @@ export const SceneModule: EngineModule = {
         ctx.events.emit('scene:entityDeleted', { id });
       },
 
+      duplicateEntity(id) {
+        ctx.engine.duplicateEntity(id);
+        // Duplicate internally triggers notifyUI
+      },
+
       renameEntity(id, name) {
         const idx = ctx.engine.ecs.idToIndex.get(id);
         if (idx !== undefined) {
