@@ -1,7 +1,7 @@
 
 // Add missing React import for ComponentType namespace
 import React from 'react';
-import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions } from '@/types';
+import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';
 
@@ -21,6 +21,8 @@ export interface EngineCommands {
   };
   mesh: {
     setComponentMode(mode: MeshComponentMode): void;
+    /** Update mesh asset geometry and notify renderers */
+    updateAssetGeometry(assetId: string, geometry: Partial<StaticMeshAsset['geometry']>): void;
   };
   scene: {
     createEntity(name: string): string;
@@ -81,6 +83,10 @@ export interface EngineQueries {
   };
   skeleton: {
     getOptions(): SkeletonOptions;
+  };
+  mesh: {
+    /** Retrieve the asset associated with an entity's Mesh component */
+    getAssetByEntity(entityId: string): Asset | null;
   };
 }
 
