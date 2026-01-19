@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 import { Icon } from './Icon';
@@ -168,7 +169,8 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
 
         {/* Transform options (shared block) */}
         {transformSpace && setTransformSpace && (
-          <TransformToolOptions tool={tool} transformSpace={transformSpace} setTransformSpace={setTransformSpace} />
+          /* Fixed: TransformToolOptions does not accept props and uses EditorContext */
+          <TransformToolOptions />
         )}
 
         {/* Snapping (shared block) */}
@@ -251,7 +253,10 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
         {meshComponentMode !== 'OBJECT' && <MeshToolsSection />}
 
         {/* Skeleton debug (shared block) */}
-        {skeletonViz && setSkeletonViz && <SkeletonDisplayOptions value={skeletonViz} onChange={setSkeletonViz} />}
+        {skeletonViz && setSkeletonViz && (
+          /* Fixed: SkeletonDisplayOptions does not accept props and uses Engine API */
+          <SkeletonDisplayOptions />
+        )}
       </div>
     </div>
   );

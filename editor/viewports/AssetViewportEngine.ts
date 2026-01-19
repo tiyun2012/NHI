@@ -8,6 +8,9 @@ import { COMPONENT_MASKS } from '@/engine/constants';
 import { MeshRenderSystem } from '@/engine/systems/MeshRenderSystem';
 import { DeformationSystem, SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import { consoleService } from '@/engine/Console';
+import { TypedEventBus } from '@/engine/core/eventBus';
+import { EngineEvents } from '@/engine/api/types';
+import { updateMeshBounds } from '@/engine/geometry/meshGeometry';
 
 type GizmoRendererFacade = {
     renderGizmos: (
@@ -25,6 +28,7 @@ export class AssetViewportEngine implements IEngine {
     sceneGraph = new SceneGraph();
     selectionSystem: SelectionSystem;
     deformationSystem: DeformationSystem;
+    events = new TypedEventBus<EngineEvents>(); // Added EventBus
     
     // Core Rendering System
     meshSystem = new MeshRenderSystem();
@@ -186,7 +190,13 @@ export class AssetViewportEngine implements IEngine {
         if (notify) this.notifyUI();
     }
 
-    notifyUI() { this.onNotifyUI?.(); }
+    notifyUI() { 
+        this.onNotifyUI?.();
+        // Emit events for API compatibility
+        // We trigger both selection events here as this engine combines selection/update loops
+        this.events.emit('selection:subChanged', undefined);
+        this.events.emit('selection:changed', { ids: Array.from(this.selectionSystem.selectedIndices).map(idx => this.ecs.store.ids[idx]) });
+    }
 
     pushUndoState() {}
 
@@ -200,6 +210,28 @@ export class AssetViewportEngine implements IEngine {
     weldVertices() { consoleService.warn("Local Weld: Not implemented"); }
     connectComponents() { consoleService.warn("Local Connect: Not implemented"); }
     deleteSelectedFaces() { consoleService.warn("Local Delete Face: Not implemented"); }
+
+    notifyMeshGeometryChanged(entityId: string) {
+        const idx = this.ecs.idToIndex.get(entityId);
+        if (idx === undefined) return;
+        const meshIntId = this.ecs.store.meshType[idx];
+        const uuid = assetManager.meshIntToUuid.get(meshIntId);
+        if (!uuid) return;
+        const asset = assetManager.getAsset(uuid);
+        
+        if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+            const meshAsset = asset as StaticMeshAsset | SkeletalMeshAsset;
+            if (!meshAsset.geometry) return;
+            updateMeshBounds(meshAsset);
+            this.meshSystem.updateMeshGeometry(meshIntId, meshAsset.geometry, {
+                positions: true,
+                normals: true,
+                uvs: true,
+                vertexColors: true,
+                indices: true,
+            });
+        }
+    }
 
     render(time: number, renderMode: number) {
         if (!this.currentViewProj) return;

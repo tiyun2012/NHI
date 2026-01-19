@@ -1,4 +1,3 @@
-
 // Add missing React import for ComponentType namespace
 import React from 'react';
 import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset } from '@/types';
@@ -92,6 +91,7 @@ export interface EngineQueries {
 
 export interface EngineEvents {
   'selection:changed': { ids: string[] };
+  'selection:subChanged': void;
   'selection:focus': void;
   'simulation:modeChanged': { mode: SimulationMode };
   'scene:entityCreated': { id: string; name?: string };

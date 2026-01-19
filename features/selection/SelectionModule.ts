@@ -1,4 +1,3 @@
-
 import type { EngineModule } from '@/engine/core/moduleHost';
 import { registerCommands, registerQueries } from '@/engine/core/registry';
 import { SELECTION_CHANGED } from './selection.events';
@@ -16,6 +15,7 @@ export const SelectionModule: EngineModule = {
       },
       modifySubSelection(type, ids, action) {
         ctx.engine.selectionSystem.modifySubSelection(type, ids, action);
+        ctx.events.emit('selection:subChanged', undefined);
         ctx.engine.notifyUI();
       },
       clearSubSelection() {
@@ -23,10 +23,12 @@ export const SelectionModule: EngineModule = {
         ctx.engine.selectionSystem.subSelection.edgeIds.clear();
         ctx.engine.selectionSystem.subSelection.faceIds.clear();
         ctx.engine.recalculateSoftSelection(true);
+        ctx.events.emit('selection:subChanged', undefined);
         ctx.engine.notifyUI();
       },
       selectLoop(mode) {
         ctx.engine.selectionSystem.selectLoop(mode);
+        ctx.events.emit('selection:subChanged', undefined);
       },
       selectInRect(rect, mode, action) {
         if (mode === 'OBJECT') {
@@ -48,8 +50,10 @@ export const SelectionModule: EngineModule = {
             const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
             if (indices.length > 0) {
                 ctx.engine.selectionSystem.modifySubSelection('VERTEX', indices, action === 'ADD' ? 'ADD' : 'SET');
+                ctx.events.emit('selection:subChanged', undefined);
             } else if (action === 'SET') {
                 ctx.engine.selectionSystem.modifySubSelection('VERTEX', [], 'SET');
+                ctx.events.emit('selection:subChanged', undefined);
             }
         }
         // TODO: Implement EDGE/FACE marquee support in SelectionSystem

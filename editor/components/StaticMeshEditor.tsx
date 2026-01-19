@@ -15,11 +15,13 @@ import { DebugRenderer } from '@/engine/renderers/DebugRenderer';
 import { Mat4Utils, Vec3Utils, AABBUtils } from '@/engine/math';
 import { MeshComponentMode, StaticMeshAsset, SkeletalMeshAsset, ToolType, TransformSpace, SnapSettings } from '@/types';
 import { consoleService } from '@/engine/Console';
+import { EngineAPI, EngineCommands, EngineQueries, EngineEvents } from '@/engine/api/types';
 
 import { Icon } from './Icon';
 import { PieMenu } from './PieMenu';
 import { AssetViewportOptionsPanel } from './AssetViewportOptionsPanel';
 import { usePieMenuInteraction, InteractionAPI } from '@/editor/hooks/usePieMenuInteraction';
+import { UVEditor } from './UVEditor';
 
 // Minimal grid shader remains local as it's not part of MeshRenderSystem yet
 const LINE_VS = `#version 300 es
@@ -136,6 +138,8 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
 
   const editorCtx = useContext(EditorContext);
 
+  const [activeTab, setActiveTab] = useState<'VIEW' | 'UV'>('VIEW');
+
   const [transformSpaceLocal, setTransformSpaceLocal] = useState<TransformSpace>('World');
   const [snapSettingsLocal, setSnapSettingsLocal] = useState<SnapSettings>(DEFAULT_SNAP_CONFIG);
   const [skeletonVizLocal, setSkeletonVizLocal] = useState(DEFAULT_SKELETON_VIZ);
@@ -247,8 +251,8 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
 
   const resetTransform = () => { previewEngineRef.current?.resetPreviewTransform(); };
 
-  // Memoize and Wrap for Logging
-  const localApi = useMemo<InteractionAPI>(() => {
+  // Memoize and Wrap for Logging (Interaction API)
+  const localInteractionApi = useMemo<InteractionAPI>(() => {
       const baseApi: InteractionAPI = {
           selection: {
               selectLoop: (m) => previewEngineRef.current?.selectLoop(m),
@@ -281,7 +285,6 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       engine.notifyUI();
                   } else if (mode === 'OBJECT') {
                       const hits = engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
-                      // In local preview, there's mostly just 1 entity, but follow the logic
                       engine.selectionSystem.setSelected(hits);
                       engine.notifyUI();
                   }
@@ -296,7 +299,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           },
           scene: {
               deleteEntity: () => console.warn("Cannot delete preview asset entity"),
-              duplicateEntity: () => resetTransform() // Map Duplicate shortcut to Reset Transform in preview
+              duplicateEntity: () => resetTransform()
           },
           modeling: {
               extrudeFaces: () => previewEngineRef.current?.extrudeFaces(),
@@ -314,6 +317,77 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       return createLoggedApi(baseApi);
   }, [setMeshComponentMode, setSoftSelectionEnabled, setSoftSelectionRadius, setSoftSelectionHeatmapVisible, focusCamera]);
 
+  // Full EngineAPI Adapter for UV Editor compatibility
+  const localEngineApi = useMemo<EngineAPI>(() => {
+      // Mock command proxy structure
+      const commands: Partial<EngineCommands> = {
+          selection: {
+              setSelected: localInteractionApi.selection.setSelected,
+              clear: localInteractionApi.selection.clear,
+              modifySubSelection: localInteractionApi.selection.modifySubSelection,
+              clearSubSelection: localInteractionApi.selection.clear,
+              selectLoop: localInteractionApi.selection.selectLoop,
+              selectInRect: localInteractionApi.selection.selectInRect,
+              focus: localInteractionApi.selection.focus
+          },
+          mesh: {
+              setComponentMode: (m) => localInteractionApi.mesh.setComponentMode(m),
+              updateAssetGeometry: (aId, geom) => {
+                  // Direct update via asset manager, then notify local engine
+                  const asset = assetManager.getAsset(aId);
+                  if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+                      const meshAsset = asset as StaticMeshAsset;
+                      if (geom.vertices) meshAsset.geometry.vertices = geom.vertices;
+                      if (geom.normals) meshAsset.geometry.normals = geom.normals;
+                      if (geom.uvs) meshAsset.geometry.uvs = geom.uvs;
+                      if (geom.indices) meshAsset.geometry.indices = geom.indices;
+                      
+                      if (previewEngineRef.current && previewEngineRef.current.entityId) {
+                          previewEngineRef.current.notifyMeshGeometryChanged(previewEngineRef.current.entityId);
+                      }
+                  }
+              }
+          },
+          modeling: {
+              extrudeFaces: localInteractionApi.modeling.extrudeFaces,
+              bevelEdges: localInteractionApi.modeling.bevelEdges,
+              weldVertices: localInteractionApi.modeling.weldVertices,
+              connectComponents: localInteractionApi.modeling.connectComponents,
+              deleteSelectedFaces: localInteractionApi.modeling.deleteSelectedFaces
+          }
+          // Other namespaces mocked if needed
+      } as any;
+
+      const queries: Partial<EngineQueries> = {
+          selection: {
+              getSelectedIds: () => previewEngineRef.current?.selectionSystem.selectedIndices.size ? Array.from(previewEngineRef.current.selectionSystem.selectedIndices).map(String) : [],
+              getSubSelection: () => previewEngineRef.current?.selectionSystem.subSelection || { vertexIds: new Set(), edgeIds: new Set(), faceIds: new Set() }
+          },
+          mesh: {
+              getAssetByEntity: (eid) => {
+                  // Local engine only has preview entity
+                  if (previewEngineRef.current && previewEngineRef.current.entityId === eid) {
+                      return assetManager.getAsset(assetId);
+                  }
+                  return null;
+              }
+          }
+      } as any;
+
+      return {
+          commands: commands as EngineCommands,
+          queries: queries as EngineQueries,
+          subscribe: (event: any, cb: any) => {
+              const engine = previewEngineRef.current;
+              if (engine) {
+                  engine.events.on(event, cb);
+                  return () => engine.events.off(event, cb);
+              }
+              return () => {};
+          }
+      };
+  }, [localInteractionApi, assetId]);
+
   // --- PIE MENU HOOK ---
   const { pieMenuState, openPieMenu, closePieMenu, handlePieAction } = usePieMenuInteraction({
       sceneGraph: previewEngineRef.current?.sceneGraph as any,
@@ -321,9 +395,9 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       onSelect: () => {}, // Selection is fixed in asset viewer
       setTool,
       setMeshComponentMode,
-      handleFocus: () => localApi.selection.focus(),
+      handleFocus: () => localInteractionApi.selection.focus(),
       handleModeSelect: (id) => setRenderMode(id),
-      api: localApi // Inject local API
+      api: localInteractionApi 
   });
 
   const { isBrushKeyHeld, isAdjustingBrush } = useBrushInteraction({
@@ -332,11 +406,11 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
     onBrushAdjustEnd: () => previewEngineRef.current?.endVertexDrag(),
     brushState: {
       enabled: softSelectionEnabled, 
-      setEnabled: (v) => localApi.sculpt?.setEnabled(v),
+      setEnabled: (v) => localInteractionApi.sculpt?.setEnabled(v),
       radius: softSelectionRadius, 
-      setRadius: (v) => localApi.sculpt?.setRadius(v),
+      setRadius: (v) => localInteractionApi.sculpt?.setRadius(v),
       heatmapVisible: softSelectionHeatmapVisible, 
-      setHeatmapVisible: (v) => localApi.sculpt?.setHeatmapVisible(v),
+      setHeatmapVisible: (v) => localInteractionApi.sculpt?.setHeatmapVisible(v),
     },
   });
 
@@ -350,10 +424,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
         const sel = previewEngineRef.current.selectionSystem.selectedIndices;
         const idx = previewEngineRef.current.ecs.idToIndex.get(id);
         if (idx !== undefined && !sel.has(idx)) {
-             localApi.selection.setSelected([id]);
+             localInteractionApi.selection.setSelected([id]);
         }
     }
-  }, [meshComponentMode, localApi]);
+  }, [meshComponentMode, localInteractionApi]);
 
   useEffect(() => {
     gizmoSystemRef.current?.setTool(tool);
@@ -368,11 +442,11 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       if (e.key === 'r') setTool('SCALE');
       if (e.key === 'g') setShowGrid(v => !v);
       if (e.key === 'z') setShowWireframe(v => !v);
-      if (e.key === 'f') localApi.selection.focus();
+      if (e.key === 'f') localInteractionApi.selection.focus();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setTool, localApi]);
+  }, [setTool, localInteractionApi]);
 
   useEffect(() => {
     // Fix: Refine asset type guard to exclude SKELETON assets, ensuring geometry and topology are only accessed on mesh-based assets.
@@ -422,6 +496,9 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   }, [assetId, meshComponentMode, softSelectionEnabled, softSelectionRadius, softSelectionMode, softSelectionFalloff, softSelectionHeatmapVisible]);
 
   useEffect(() => {
+    // Only init GL loop if tab is VIEW
+    if (activeTab !== 'VIEW') return;
+
     // Fix: Exclude SKELETON asset type from the render initialization to safely access mesh-specific properties like topology.
     const asset = assetManager.getAsset(assetId);
     if (!asset || (asset.type === 'FOLDER' || asset.type === 'MATERIAL' || asset.type === 'PHYSICS_MATERIAL' || asset.type === 'SCRIPT' || asset.type === 'RIG' || asset.type === 'SCENE' || asset.type === 'TEXTURE' || asset.type === 'SKELETON')) return;
@@ -562,9 +639,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       debugRenderer.drawLine(p1, p2, color);
                   };
 
-                  // Fix: Use the properly narrowed meshAsset type to ensure topology property access is valid and safe.
-                  if (meshAsset.topology && meshAsset.topology.faces.length > 0) {
-                      meshAsset.topology.faces.forEach(face => {
+                  // Fixed: Use properly narrowed meshAsset type by explicit cast again
+                  const narrowedMesh = meshAsset as StaticMeshAsset | SkeletalMeshAsset;
+                  if (narrowedMesh.topology && narrowedMesh.topology.faces.length > 0) {
+                      narrowedMesh.topology.faces.forEach(face => {
                           for(let k=0; k<face.length; k++) {
                               const vA = face[k];
                               const vB = face[(k+1)%face.length];
@@ -604,7 +682,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
     };
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); gl.deleteProgram(lineProgram); gl.deleteVertexArray(gridVao); gl.deleteBuffer(gridVbo); };
-  }, [assetId]);
+  }, [assetId, activeTab]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
       if (isBrushKeyHeld.current && meshComponentModeRef.current !== 'OBJECT') return;
@@ -620,7 +698,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           if (engine) {
               const hit = engine.selectionSystem.selectEntityAt(mx, my, rect.width, rect.height);
               // Ensure preview mesh is selected for context operations
-              if (hit) localApi.selection.setSelected([hit]);
+              if (hit) localInteractionApi.selection.setSelected([hit]);
           }
           openPieMenu(e.clientX, e.clientY);
           return;
@@ -635,19 +713,19 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
               if (picked) {
                   // Make sure the entity is selected so gizmos and render overlays work
                   if (engine.entityId && engine.selectionSystem.selectedIndices.size === 0) {
-                      localApi.selection.setSelected([engine.entityId]);
+                      localInteractionApi.selection.setSelected([engine.entityId]);
                   }
 
                   let action: 'SET' | 'TOGGLE' = 'SET';
                   if (e.shiftKey) action = 'TOGGLE';
 
                   if (meshComponentMode === 'VERTEX') {
-                      localApi.selection.modifySubSelection('VERTEX', [picked.vertexId], action);
+                      localInteractionApi.selection.modifySubSelection('VERTEX', [picked.vertexId], action);
                   } else if (meshComponentMode === 'EDGE') {
                       const key = picked.edgeId.sort((a,b)=>a-b).join('-');
-                      localApi.selection.modifySubSelection('EDGE', [key], action);
+                      localInteractionApi.selection.modifySubSelection('EDGE', [key], action);
                   } else if (meshComponentMode === 'FACE') {
-                      localApi.selection.modifySubSelection('FACE', [picked.faceId], action);
+                      localInteractionApi.selection.modifySubSelection('FACE', [picked.faceId], action);
                   }
                   return;
               }
@@ -658,7 +736,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           
           const hitId = engine.selectionSystem.selectEntityAt(mx, my, rect.width, rect.height);
           if (hitId) { 
-              localApi.selection.setSelected([hitId]); 
+              localInteractionApi.selection.setSelected([hitId]); 
               return; 
           }
           
@@ -717,7 +795,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
              const x = Math.min(sb.startX, e.clientX-rect.left);
              const y = Math.min(sb.startY, e.clientY-rect.top);
              // Use the new stable API for marquee
-             localApi.selection.selectInRect(
+             localInteractionApi.selection.selectInRect(
                  { x, y, w, h }, 
                  sb.mode, 
                  e.shiftKey ? 'ADD' : 'SET'
@@ -727,12 +805,12 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
              if (!e.shiftKey) {
                  if (sb.mode !== 'OBJECT') {
                      // In component mode, clear sub-selection but keep entity selected so Gizmo/DebugDraw works
-                     if (sb.mode === 'VERTEX') localApi.selection.modifySubSelection('VERTEX', [], 'SET');
-                     else if (sb.mode === 'EDGE') localApi.selection.modifySubSelection('EDGE', [], 'SET');
-                     else if (sb.mode === 'FACE') localApi.selection.modifySubSelection('FACE', [], 'SET');
+                     if (sb.mode === 'VERTEX') localInteractionApi.selection.modifySubSelection('VERTEX', [], 'SET');
+                     else if (sb.mode === 'EDGE') localInteractionApi.selection.modifySubSelection('EDGE', [], 'SET');
+                     else if (sb.mode === 'FACE') localInteractionApi.selection.modifySubSelection('FACE', [], 'SET');
                  } else {
                      // In object mode, normal clear
-                     localApi.selection.clear();
+                     localInteractionApi.selection.clear();
                  }
              }
           }
@@ -747,71 +825,100 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   return (
     <div className="flex h-full bg-[#151515] select-none text-xs">
       <div className="flex-1 flex flex-col">
-        <div ref={containerRef} className={`flex-1 relative overflow-hidden ${dragState ? 'cursor-grabbing' : 'cursor-default'}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={(e) => setCamera(p => ({...p, radius: Math.max(0.25, p.radius + e.deltaY * 0.01)}))} onContextMenu={e => e.preventDefault()}>
-            <canvas ref={canvasRef} className="w-full h-full block relative z-10" />
-            {selectionBox && selectionBox.isSelecting && <div className="absolute z-20 pointer-events-none border-2 border-[#4f80f8] bg-[#4f80f8]/20" style={{ left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY) }} />}
-            
-            <div className="absolute top-3 left-3 flex gap-2 z-20 pointer-events-auto">
-                <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
-                    {['SELECT','MOVE','ROTATE','SCALE'].map(t => <button key={t} className={`p-1 hover:text-white rounded ${tool===t?'text-accent':''}`} onClick={() => setTool(t as any)}><Icon name={t==='SELECT'?'MousePointer2':(t==='MOVE'?'Move':(t==='ROTATE'?'RotateCw':'Maximize')) as any} size={14}/></button>)}
-                </div>
-                <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
-                    {([
-                      { id: 'OBJECT', icon: 'Box', title: 'Object Mode' },
-                      { id: 'VERTEX', icon: 'Dot', title: 'Vertex Mode' },
-                      { id: 'EDGE', icon: 'Minus', title: 'Edge Mode' },
-                      { id: 'FACE', icon: 'Square', title: 'Face Mode' },
-                    ] as const).map(m => (
-                      <button
-                        key={m.id}
-                        title={m.title}
-                        className={`p-1 hover:text-white rounded ${meshComponentMode===m.id?'text-accent':''}`}
-                        onClick={() => localApi.mesh.setComponentMode(m.id)}
-                      >
-                        <Icon name={m.icon as any} size={14} />
-                      </button>
-                    ))}
-                </div>
-                <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex items-center px-2 py-1 text-[10px] text-text-secondary min-w-[100px] justify-between cursor-pointer hover:bg-white/5" onClick={() => setRenderMode(p => (p+1)%3)}>
-                    <div className="flex items-center gap-2"><Icon name={renderModeItem.icon as any} size={12} className="text-accent" /><span className="font-semibold text-white/90">{renderModeItem.label}</span></div>
-                </div>
-                <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
-                    <button className={`p-1 hover:text-white rounded ${showGrid?'text-accent':''}`} onClick={() => setShowGrid(v=>!v)}><Icon name="Grid" size={14}/></button>
-                    <button className={`p-1 hover:text-white rounded ${showWireframe?'text-accent':''}`} onClick={() => setShowWireframe(v=>!v)}><Icon name="Codepen" size={14}/></button>
-                    <button className="p-1 hover:text-white rounded" onClick={() => { resetTransform(); localApi.selection.focus(); }}><Icon name="Home" size={14}/></button>
-                </div>
+        {/* Toolbar with Tab Switcher */}
+        <div className="absolute top-3 left-3 flex gap-2 z-20 pointer-events-auto">
+            <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
+                <button 
+                    className={`px-2 py-1 rounded transition-colors flex items-center gap-1 ${activeTab === 'VIEW' ? 'bg-white/10 text-white shadow-sm' : 'hover:text-white'}`}
+                    onClick={() => setActiveTab('VIEW')}
+                >
+                    <Icon name="Box" size={12} /> 3D View
+                </button>
+                <button 
+                    className={`px-2 py-1 rounded transition-colors flex items-center gap-1 ${activeTab === 'UV' ? 'bg-white/10 text-white shadow-sm' : 'hover:text-white'}`}
+                    onClick={() => setActiveTab('UV')}
+                >
+                    <Icon name="LayoutGrid" size={12} /> UV Editor
+                </button>
             </div>
 
-            <div className="absolute top-3 right-3 flex items-center gap-2 z-20 pointer-events-auto">
-                <div className="hidden sm:flex items-center gap-4 text-[10px] font-mono text-text-secondary bg-black/40 px-2 py-1 rounded backdrop-blur border border-white/5">
-                    <div><span className="text-accent">{stats.verts}</span> Verts</div><div className="h-3 w-px bg-white/10" />
-                    <div><span className="text-accent">{stats.tris}</span> Tris</div><div className="h-3 w-px bg-white/10" />
-                    <div><span className="text-accent">{meshComponentMode}</span></div>
+            {activeTab === 'VIEW' && (
+                <>
+                    <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
+                        {['SELECT','MOVE','ROTATE','SCALE'].map(t => <button key={t} className={`p-1 hover:text-white rounded ${tool===t?'text-accent':''}`} onClick={() => setTool(t as any)}><Icon name={t==='SELECT'?'MousePointer2':(t==='MOVE'?'Move':(t==='ROTATE'?'RotateCw':'Maximize')) as any} size={14}/></button>)}
+                    </div>
+                    <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
+                        {([
+                          { id: 'OBJECT', icon: 'Box', title: 'Object Mode' },
+                          { id: 'VERTEX', icon: 'Dot', title: 'Vertex Mode' },
+                          { id: 'EDGE', icon: 'Minus', title: 'Edge Mode' },
+                          { id: 'FACE', icon: 'Square', title: 'Face Mode' },
+                        ] as const).map(m => (
+                          <button
+                            key={m.id}
+                            title={m.title}
+                            className={`p-1 hover:text-white rounded ${meshComponentMode===m.id?'text-accent':''}`}
+                            onClick={() => localInteractionApi.mesh.setComponentMode(m.id)}
+                          >
+                            <Icon name={m.icon as any} size={14} />
+                          </button>
+                        ))}
+                    </div>
+                    <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex items-center px-2 py-1 text-[10px] text-text-secondary min-w-[100px] justify-between cursor-pointer hover:bg-white/5" onClick={() => setRenderMode(p => (p+1)%3)}>
+                        <div className="flex items-center gap-2"><Icon name={renderModeItem.icon as any} size={12} className="text-accent" /><span className="font-semibold text-white/90">{renderModeItem.label}</span></div>
+                    </div>
+                    <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
+                        <button className={`p-1 hover:text-white rounded ${showGrid?'text-accent':''}`} onClick={() => setShowGrid(v=>!v)}><Icon name="Grid" size={14}/></button>
+                        <button className={`p-1 hover:text-white rounded ${showWireframe?'text-accent':''}`} onClick={() => setShowWireframe(v=>!v)}><Icon name="Codepen" size={14}/></button>
+                        <button className="p-1 hover:text-white rounded" onClick={() => { resetTransform(); localInteractionApi.selection.focus(); }}><Icon name="Home" size={14}/></button>
+                    </div>
+                </>
+            )}
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 relative overflow-hidden bg-[#151515]">
+            {activeTab === 'VIEW' ? (
+                <div ref={containerRef} className={`w-full h-full relative overflow-hidden ${dragState ? 'cursor-grabbing' : 'cursor-default'}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={(e) => setCamera(p => ({...p, radius: Math.max(0.25, p.radius + e.deltaY * 0.01)}))} onContextMenu={e => e.preventDefault()}>
+                    <canvas ref={canvasRef} className="w-full h-full block relative z-10" />
+                    {selectionBox && selectionBox.isSelecting && <div className="absolute z-20 pointer-events-none border-2 border-[#4f80f8] bg-[#4f80f8]/20" style={{ left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY) }} />}
+                    
+                    <div className="absolute top-3 right-3 flex items-center gap-2 z-20 pointer-events-auto">
+                        <div className="hidden sm:flex items-center gap-4 text-[10px] font-mono text-text-secondary bg-black/40 px-2 py-1 rounded backdrop-blur border border-white/5">
+                            <div><span className="text-accent">{stats.verts}</span> Verts</div><div className="h-3 w-px bg-white/10" />
+                            <div><span className="text-accent">{stats.tris}</span> Tris</div><div className="h-3 w-px bg-white/10" />
+                            <div><span className="text-accent">{meshComponentMode}</span></div>
+                        </div>
+                    </div>
+
+                    <div className="absolute bottom-2 right-2 text-[10px] text-text-secondary bg-black/40 px-2 py-0.5 rounded backdrop-blur border border-white/5 z-20 pointer-events-none">
+                        <span>Cam: {camera.target.x.toFixed(1)}, {camera.target.y.toFixed(1)}, {camera.target.z.toFixed(1)}</span>
+                    </div>
+
+                    {pieMenuState && createPortal(
+                        <PieMenu 
+                            x={pieMenuState.x} 
+                            y={pieMenuState.y} 
+                            currentMode={meshComponentMode} 
+                            onSelectMode={(m) => { localInteractionApi.mesh.setComponentMode(m); closePieMenu(); }} 
+                            onAction={handlePieAction} 
+                            onClose={closePieMenu} 
+                        />, 
+                        document.body
+                    )}
                 </div>
-            </div>
-
-            <div className="absolute bottom-2 right-2 text-[10px] text-text-secondary bg-black/40 px-2 py-0.5 rounded backdrop-blur border border-white/5 z-20 pointer-events-none">
-                <span>Cam: {camera.target.x.toFixed(1)}, {camera.target.y.toFixed(1)}, {camera.target.z.toFixed(1)}</span>
-            </div>
-
-            {pieMenuState && createPortal(
-                <PieMenu 
-                    x={pieMenuState.x} 
-                    y={pieMenuState.y} 
-                    currentMode={meshComponentMode} 
-                    onSelectMode={(m) => { localApi.mesh.setComponentMode(m); closePieMenu(); }} 
-                    onAction={handlePieAction} 
-                    onSelect={() => {}} 
-                    onClose={closePieMenu} 
-                />, 
-                document.body
+            ) : (
+                // UV Editor with Local Engine Context
+                <UVEditor api={localEngineApi} assetId={assetId} />
             )}
         </div>
       </div>
+      
+      {/* Side Panel */}
       <div className="w-[320px] shrink-0 border-l border-white/5 bg-[#111111]">
         <AssetViewportOptionsPanel
             tool={tool} setTool={setTool}
-            meshComponentMode={meshComponentMode} setMeshComponentMode={(m) => localApi.mesh.setComponentMode(m)}
+            meshComponentMode={meshComponentMode} setMeshComponentMode={(m) => localInteractionApi.mesh.setComponentMode(m)}
             uiConfig={uiConfig} setUiConfig={setUiConfig}
             showVertexOverlay={showVertexOverlay} setShowVertexOverlay={setShowVertexOverlay}
             softSelectionEnabled={softSelectionEnabled} setSoftSelectionEnabled={setSoftSelectionEnabled}

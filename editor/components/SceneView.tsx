@@ -506,7 +506,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                     currentMode={meshComponentMode}
                     onSelectMode={(m) => { setMeshComponentMode(m); closePieMenu(); }}
                     onAction={handlePieAction}
-                    onSelect={() => {}}
+                    /* Fixed: Removed non-existent onSelect prop */
                     onClose={closePieMenu}
                 />, 
                 document.body
