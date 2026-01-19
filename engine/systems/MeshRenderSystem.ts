@@ -5,6 +5,7 @@ import { INITIAL_CAPACITY, COMPONENT_MASKS } from '../constants';
 interface MeshBatch {
     vao: WebGLVertexArrayObject;
     count: number;
+    indexType: number; // gl.UNSIGNED_SHORT or gl.UNSIGNED_INT
     instanceBuffer: WebGLBuffer;
     cpuBuffer: Float32Array; 
     instanceCount: number; 
@@ -17,6 +18,13 @@ interface MeshBatch {
     normalBuffer: WebGLBuffer;
     uvBuffer: WebGLBuffer;
     indexBuffer: WebGLBuffer;
+    // Buffer sizes (byte lengths) to choose bufferSubData vs orphan+subData
+    positionByteLength: number;
+    normalByteLength: number;
+    uvByteLength: number;
+    indexByteLength: number;
+    softWeightByteLength: number;
+    vertexColorByteLength?: number;
     vertexColorBuffer?: WebGLBuffer;
     jointIndexBuffer?: WebGLBuffer;
     jointWeightBuffer?: WebGLBuffer;
@@ -212,7 +220,22 @@ export class MeshRenderSystem {
     meshes: Map<number, MeshBatch> = new Map();
     textureArray: WebGLTexture | null = null;
     boneTexture: WebGLTexture | null = null;
-    
+
+    // Uniform location cache (avoid per-draw gl.getUniformLocation calls)
+    private uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
+
+    private getUniformLocation(gl: WebGL2RenderingContext, program: WebGLProgram, name: string) {
+        let map = this.uniformCache.get(program);
+        if (!map) {
+            map = new Map();
+            this.uniformCache.set(program, map);
+        }
+        if (map.has(name)) return map.get(name)!;
+        const loc = gl.getUniformLocation(program, name);
+        map.set(name, loc);
+        return loc;
+    }
+
     // State
     selectedBoneIndex: number = -1;
 
@@ -283,7 +306,6 @@ export class MeshRenderSystem {
         const pixelCount = matrices.length / 4; 
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0, 0, 0, pixelCount, 1, this.gl.RGBA, this.gl.FLOAT, matrices);
     }
-
     registerMesh(id: number, geometry: any) {
         if (!this.gl) return;
         const gl = this.gl;
@@ -295,6 +317,7 @@ export class MeshRenderSystem {
         gl.bindVertexArray(vao);
 
         // Clean up previous geometry buffers to avoid GPU memory leaks.
+        // We may preserve softWeightBuffer if vertexCount matches (see below).
         if (existingMesh) {
             gl.deleteBuffer(existingMesh.positionBuffer);
             gl.deleteBuffer(existingMesh.normalBuffer);
@@ -305,34 +328,62 @@ export class MeshRenderSystem {
             if (existingMesh.jointWeightBuffer) gl.deleteBuffer(existingMesh.jointWeightBuffer);
         }
 
-        const toTyped = (data: any, isIndex: boolean) => {
-            if (data instanceof Float32Array || data instanceof Uint16Array || data instanceof Uint32Array) return data;
-            return isIndex ? new Uint16Array(data) : new Float32Array(data);
+        const toFloat32 = (data: any) => {
+            if (data instanceof Float32Array) return data;
+            return new Float32Array(data);
         };
 
-        const createBuf = (data: any, target: number, usage: number) => {
+        const toIndex = (data: any, vertexCount: number) => {
+            if (data instanceof Uint16Array) return { arr: data, type: gl.UNSIGNED_SHORT };
+            if (data instanceof Uint32Array) return { arr: data, type: gl.UNSIGNED_INT };
+
+            // Assume array-like of numbers
+            let maxIndex = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = (data[i] as number) | 0;
+                if (v > maxIndex) maxIndex = v;
+            }
+
+            const use32 = vertexCount > 65535 || maxIndex > 65535;
+            return {
+                arr: use32 ? new Uint32Array(data) : new Uint16Array(data),
+                type: use32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+            };
+        };
+
+        const createBuf = (typed: ArrayBufferView, target: number, usage: number) => {
             const b = gl.createBuffer()!;
             gl.bindBuffer(target, b);
-            gl.bufferData(target, toTyped(data, target === gl.ELEMENT_ARRAY_BUFFER), usage);
+            gl.bufferData(target, typed, usage);
             return b;
         };
 
-        const positionBuffer = createBuf(geometry.vertices, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+        // Positions
+        const positions = toFloat32(geometry.vertices);
+        const vertexCount = (positions.length / 3) | 0;
+        const positionBuffer = createBuf(positions, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(0);
         gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
-        const normalBuffer = createBuf(geometry.normals, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+        // Normals
+        const normals = toFloat32(geometry.normals ?? new Float32Array(positions.length));
+        const normalBuffer = createBuf(normals, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
         gl.enableVertexAttribArray(1);
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
 
-        const uvBuffer = createBuf(geometry.uvs, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
+        // UVs
+        const uvs = toFloat32(geometry.uvs ?? new Float32Array(vertexCount * 2));
+        const uvBuffer = createBuf(uvs, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
         gl.enableVertexAttribArray(8);
         gl.vertexAttribPointer(8, 2, gl.FLOAT, false, 0, 0);
 
         // Vertex Colors
         let vertexColorBuffer: WebGLBuffer | undefined;
+        let vertexColorByteLength: number | undefined;
         if (geometry.colors && geometry.colors.length > 0) {
-            vertexColorBuffer = createBuf(geometry.colors, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
+            const colors = toFloat32(geometry.colors);
+            vertexColorByteLength = colors.byteLength;
+            vertexColorBuffer = createBuf(colors, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
             gl.enableVertexAttribArray(13);
             gl.vertexAttribPointer(13, 3, gl.FLOAT, false, 0, 0);
         } else {
@@ -340,14 +391,16 @@ export class MeshRenderSystem {
         }
 
         // Soft Selection Weights (preserve ONLY if vertex count matches)
-        const vertexCount = (geometry.vertices.length / 3) | 0;
         let softWeightBuffer: WebGLBuffer;
+        let softWeightByteLength: number;
         if (existingMesh && existingMesh.softWeightBuffer && existingMesh.vertexCount === vertexCount) {
             softWeightBuffer = existingMesh.softWeightBuffer;
+            softWeightByteLength = existingMesh.softWeightByteLength;
         } else {
             if (existingMesh?.softWeightBuffer) gl.deleteBuffer(existingMesh.softWeightBuffer);
             const softWeights = new Float32Array(vertexCount).fill(0);
             softWeightBuffer = createBuf(softWeights, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+            softWeightByteLength = softWeights.byteLength;
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, softWeightBuffer);
         gl.enableVertexAttribArray(14);
@@ -358,11 +411,13 @@ export class MeshRenderSystem {
         let jointIndexBuffer: WebGLBuffer | undefined;
         let jointWeightBuffer: WebGLBuffer | undefined;
         if (hasSkin) {
-            jointIndexBuffer = createBuf(geometry.jointIndices, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
+            const jointIdx = toFloat32(geometry.jointIndices);
+            jointIndexBuffer = createBuf(jointIdx, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
             gl.enableVertexAttribArray(11);
             gl.vertexAttribPointer(11, 4, gl.FLOAT, false, 0, 0);
 
-            jointWeightBuffer = createBuf(geometry.jointWeights, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
+            const jointW = toFloat32(geometry.jointWeights);
+            jointWeightBuffer = createBuf(jointW, gl.ARRAY_BUFFER, gl.STATIC_DRAW);
             gl.enableVertexAttribArray(12);
             gl.vertexAttribPointer(12, 4, gl.FLOAT, false, 0, 0);
         } else {
@@ -370,7 +425,9 @@ export class MeshRenderSystem {
             gl.disableVertexAttribArray(12);
         }
 
-        const indexBuffer = createBuf(geometry.indices, gl.ELEMENT_ARRAY_BUFFER, gl.STATIC_DRAW);
+        // Indices (auto-pick Uint16 vs Uint32)
+        const idx = toIndex(geometry.indices ?? [], vertexCount);
+        const indexBuffer = createBuf(idx.arr, gl.ELEMENT_ARRAY_BUFFER, gl.STATIC_DRAW);
 
         // Instance Data (only create if new)
         let inst = existingMesh?.instanceBuffer;
@@ -402,7 +459,8 @@ export class MeshRenderSystem {
 
         this.meshes.set(id, {
             vao,
-            count: geometry.indices.length,
+            count: idx.arr.length,
+            indexType: idx.type,
             instanceBuffer: inst,
             cpuBuffer: existingMesh?.cpuBuffer || new Float32Array(INITIAL_CAPACITY * 22),
             instanceCount: 0,
@@ -414,6 +472,13 @@ export class MeshRenderSystem {
             normalBuffer,
             uvBuffer,
             indexBuffer,
+
+            positionByteLength: positions.byteLength,
+            normalByteLength: normals.byteLength,
+            uvByteLength: uvs.byteLength,
+            indexByteLength: idx.arr.byteLength,
+            softWeightByteLength,
+            vertexColorByteLength,
             vertexColorBuffer,
             jointIndexBuffer,
             jointWeightBuffer,
@@ -421,6 +486,7 @@ export class MeshRenderSystem {
     }
 
     /**
+
      * Update selected GPU buffers for a mesh without recreating the VAO or leaking buffers.
      * If topology changed (vertex count differs), falls back to full registerMesh.
      */
@@ -440,33 +506,62 @@ export class MeshRenderSystem {
             return;
         }
 
-        const vertexCount = (geometry.vertices.length / 3) | 0;
+        const positions = geometry.vertices;
+        const vertexCount = ((positions.length ?? 0) / 3) | 0;
         if (mesh.vertexCount !== vertexCount) {
             this.registerMesh(id, geometry);
             return;
         }
 
-        const toTyped = (data: any, isIndex: boolean) => {
-            if (data instanceof Float32Array || data instanceof Uint16Array || data instanceof Uint32Array) return data;
-            return isIndex ? new Uint16Array(data) : new Float32Array(data);
+        const toFloat32 = (data: any) => {
+            if (data instanceof Float32Array) return data;
+            return new Float32Array(data);
         };
 
-        // Use bufferData (not bufferSubData) so geometry edits that change data length
-        // (e.g. face deletion changing indices length) remain safe without bookkeeping.
+        const toIndex = (data: any, vc: number) => {
+            if (data instanceof Uint16Array) return { arr: data, type: gl.UNSIGNED_SHORT };
+            if (data instanceof Uint32Array) return { arr: data, type: gl.UNSIGNED_INT };
+
+            let maxIndex = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = (data[i] as number) | 0;
+                if (v > maxIndex) maxIndex = v;
+            }
+            const use32 = vc > 65535 || maxIndex > 65535;
+            return {
+                arr: use32 ? new Uint32Array(data) : new Uint16Array(data),
+                type: use32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+            };
+        };
+
+        const updateBuf = (target: number, buffer: WebGLBuffer, typed: ArrayBufferView, usage: number, prev: number) => {
+            gl.bindBuffer(target, buffer);
+            if (typed.byteLength === prev) {
+                gl.bufferSubData(target, 0, typed);
+                return prev;
+            }
+            // Orphan + subData to avoid stalls on large dynamic buffers
+            gl.bufferData(target, typed.byteLength, usage);
+            gl.bufferSubData(target, 0, typed);
+            return typed.byteLength;
+        };
+
         if (opts.positions) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, toTyped(geometry.vertices, false), gl.DYNAMIC_DRAW);
+            const p = toFloat32(geometry.vertices);
+            mesh.positionByteLength = updateBuf(gl.ARRAY_BUFFER, mesh.positionBuffer, p, gl.DYNAMIC_DRAW, mesh.positionByteLength);
         }
+
         if (opts.normals && geometry.normals) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normalBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, toTyped(geometry.normals, false), gl.DYNAMIC_DRAW);
+            const n = toFloat32(geometry.normals);
+            mesh.normalByteLength = updateBuf(gl.ARRAY_BUFFER, mesh.normalBuffer, n, gl.DYNAMIC_DRAW, mesh.normalByteLength);
         }
+
         if (opts.uvs && geometry.uvs) {
-            gl.bindBuffer(gl.ARRAY_BUFFER, mesh.uvBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, toTyped(geometry.uvs, false), gl.STATIC_DRAW);
+            const u = toFloat32(geometry.uvs);
+            mesh.uvByteLength = updateBuf(gl.ARRAY_BUFFER, mesh.uvBuffer, u, gl.STATIC_DRAW, mesh.uvByteLength);
         }
+
         if (opts.vertexColors) {
-            // If vertex color presence toggles, re-register.
             const hasColors = !!(geometry.colors && geometry.colors.length > 0);
             const hadColors = !!mesh.vertexColorBuffer;
             if (hasColors !== hadColors) {
@@ -474,23 +569,39 @@ export class MeshRenderSystem {
                 return;
             }
             if (hasColors && mesh.vertexColorBuffer) {
-                gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vertexColorBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, toTyped(geometry.colors, false), gl.STATIC_DRAW);
+                const c = toFloat32(geometry.colors);
+                mesh.vertexColorByteLength = updateBuf(gl.ARRAY_BUFFER, mesh.vertexColorBuffer, c, gl.STATIC_DRAW, mesh.vertexColorByteLength ?? 0);
             }
         }
+
         if (opts.indices && geometry.indices) {
+            const idx = toIndex(geometry.indices, vertexCount);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, toTyped(geometry.indices, true), gl.STATIC_DRAW);
-            mesh.count = geometry.indices.length;
+            if (idx.arr.byteLength === mesh.indexByteLength) {
+                gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx.arr);
+            } else {
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx.arr.byteLength, gl.STATIC_DRAW);
+                gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx.arr);
+                mesh.indexByteLength = idx.arr.byteLength;
+            }
+            mesh.count = idx.arr.length;
+            mesh.indexType = idx.type;
         }
     }
 
     updateSoftSelectionBuffer(meshId: number, weights: Float32Array) {
         if (!this.gl) return;
+        const gl = this.gl;
         const mesh = this.meshes.get(meshId);
-        if (mesh) {
-            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, mesh.softWeightBuffer);
-            this.gl.bufferData(this.gl.ARRAY_BUFFER, weights, this.gl.DYNAMIC_DRAW);
+        if (!mesh) return;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, mesh.softWeightBuffer);
+        if (weights.byteLength === mesh.softWeightByteLength) {
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, weights);
+        } else {
+            gl.bufferData(gl.ARRAY_BUFFER, weights.byteLength, gl.DYNAMIC_DRAW);
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, weights);
+            mesh.softWeightByteLength = weights.byteLength;
         }
     }
 
@@ -532,37 +643,39 @@ export class MeshRenderSystem {
             const matId = key >> 16; const meshId = key & 0xFFFF; const mesh = this.meshes.get(meshId); if(!mesh) return;
             const program = (matId > 0 && this.materialPrograms.has(matId)) ? this.materialPrograms.get(matId)! : this.defaultProgram!;
             gl.useProgram(program);
-            
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_viewProjection'), false, vp);
-            gl.uniform1f(gl.getUniformLocation(program, 'u_time'), time);
-            gl.uniform3f(gl.getUniformLocation(program, 'u_cameraPos'), cam.x, cam.y, cam.z);
-            gl.uniform1i(gl.getUniformLocation(program, 'u_renderMode'), renderMode);
-            gl.uniform3fv(gl.getUniformLocation(program, 'u_lightDir'), lightDir);
-            gl.uniform3fv(gl.getUniformLocation(program, 'u_lightColor'), lightColor);
-            gl.uniform1f(gl.getUniformLocation(program, 'u_lightIntensity'), lightIntensity);
-            
+
+            const u = (name: string) => this.getUniformLocation(gl, program, name);
+
+            let loc = u('u_viewProjection'); if (loc) gl.uniformMatrix4fv(loc, false, vp);
+            loc = u('u_time'); if (loc) gl.uniform1f(loc, time);
+            loc = u('u_cameraPos'); if (loc) gl.uniform3f(loc, cam.x, cam.y, cam.z);
+            loc = u('u_renderMode'); if (loc) gl.uniform1i(loc, renderMode);
+            loc = u('u_lightDir'); if (loc) gl.uniform3fv(loc, lightDir);
+            loc = u('u_lightColor'); if (loc) gl.uniform3fv(loc, lightColor);
+            loc = u('u_lightIntensity'); if (loc) gl.uniform1f(loc, lightIntensity);
+
             // Pass Heatmap visibility uniform
-            gl.uniform1f(gl.getUniformLocation(program, 'u_showHeatmap'), softSelData?.heatmapVisible ? 1.0 : 0.0);
-            
+            loc = u('u_showHeatmap'); if (loc) gl.uniform1f(loc, softSelData?.heatmapVisible ? 1.0 : 0.0);
+
             // Pass Selected Bone Index
-            gl.uniform1i(gl.getUniformLocation(program, 'u_selectedBoneIndex'), this.selectedBoneIndex);
-            
+            loc = u('u_selectedBoneIndex'); if (loc) gl.uniform1i(loc, this.selectedBoneIndex);
+
             // Disable Particle Masking for Meshes
-            gl.uniform1i(gl.getUniformLocation(program, 'u_isParticle'), 0);
+            loc = u('u_isParticle'); if (loc) gl.uniform1i(loc, 0);
 
             if (this.boneTexture) {
                 gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.boneTexture);
-                const loc = gl.getUniformLocation(program, 'u_boneTexture');
+                const loc = u('u_boneTexture');
                 if (loc) gl.uniform1i(loc, 1);
                 
-                const locSkin = gl.getUniformLocation(program, 'u_hasSkinning');
+                const locSkin = u('u_hasSkinning');
                 if (locSkin) gl.uniform1i(locSkin, mesh.hasSkin ? 1 : 0);
             }
 
             if (this.textureArray) { 
                 gl.activeTexture(gl.TEXTURE0); 
                 gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.textureArray); 
-                const loc = gl.getUniformLocation(program, 'u_textures');
+                const loc = u('u_textures');
                 if (loc) gl.uniform1i(loc, 0);
             }
 
@@ -600,7 +713,7 @@ export class MeshRenderSystem {
                 gl.bindVertexArray(mesh.vao);
                 gl.bindBuffer(gl.ARRAY_BUFFER, mesh.instanceBuffer);
                 gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, instanceIdx * stride));
-                gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0, instanceIdx);
+                gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, mesh.indexType, 0, instanceIdx);
             }
         });
     }

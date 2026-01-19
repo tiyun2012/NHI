@@ -70,6 +70,7 @@ export class Engine {
     currentHeight: number = 0;
     
     private listeners: (() => void)[] = [];
+    private eventUnsubs: (() => void)[] = [];
     private accumulator: number = 0;
     private fixedTimeStep: number = 1 / 60;
     private maxFrameTime: number = 0.1;
@@ -114,32 +115,38 @@ export class Engine {
     }
 
     private initEventListeners() {
-        eventBus.on('ASSET_CREATED', (asset: any) => {
-             const a = assetManager.getAsset(asset.id);
-             if (a && (a.type === 'MESH' || a.type === 'SKELETAL_MESH')) {
-                 this.registerAssetWithGPU(a as StaticMeshAsset | SkeletalMeshAsset);
-             }
-        });
+        this.eventUnsubs.push(
+            eventBus.on("ASSET_CREATED", (asset: any) => {
+                const a = assetManager.getAsset(asset.id);
+                if (a && (a.type === "MESH" || a.type === "SKELETAL_MESH")) {
+                    this.registerAssetWithGPU(a as StaticMeshAsset | SkeletalMeshAsset);
+                }
+            })
+        );
 
-        eventBus.on('ASSET_UPDATED', (asset: any) => {
-             const a = assetManager.getAsset(asset.id);
-             if (a) {
-                 if (a.type === 'MESH' || a.type === 'SKELETAL_MESH') {
-                     this.notifyMeshChanged(a.id);
-                 } else if (a.type === 'MATERIAL') {
-                     this.compileGraph(a.data.nodes, a.data.connections, a.id);
-                 }
-             }
-        });
+        this.eventUnsubs.push(
+            eventBus.on("ASSET_UPDATED", (asset: any) => {
+                const a = assetManager.getAsset(asset.id);
+                if (a) {
+                    if (a.type === "MESH" || a.type === "SKELETAL_MESH") {
+                        this.notifyMeshChanged(a.id);
+                    } else if (a.type === "MATERIAL") {
+                        this.compileGraph(a.data.nodes, a.data.connections, a.id);
+                    }
+                }
+            })
+        );
 
-        eventBus.on('TEXTURE_LOADED', (payload: any) => {
-            const { layerIndex, image } = payload;
-            if (this.renderer.gl) {
-                this.meshSystem.uploadTexture(layerIndex, image);
-            } else {
-                this.pendingTextureUploads.push({ layerIndex, image });
-            }
-        });
+        this.eventUnsubs.push(
+            eventBus.on("TEXTURE_LOADED", (payload: any) => {
+                const { layerIndex, image } = payload;
+                if (this.renderer.gl) {
+                    this.meshSystem.uploadTexture(layerIndex, image);
+                } else {
+                    this.pendingTextureUploads.push({ layerIndex, image });
+                }
+            })
+        );
     }
 
     startSystem() {
@@ -158,6 +165,31 @@ export class Engine {
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
             this.rafId = 0;
+        }
+    }
+
+    /**
+     * Cleanly shut down the engine runtime.
+     * Useful for hot-reload, editor tab switching, or embedding multiple engines.
+     */
+    dispose() {
+        this.stopSystem();
+
+        // Unsubscribe engine-level events
+        for (const off of this.eventUnsubs) {
+            try {
+                off();
+            } catch (e) {
+                console.warn('[engine] event unsubscribe failed', e);
+            }
+        }
+        this.eventUnsubs = [];
+
+        // Allow module systems to clean up
+        try {
+            moduleManager.dispose();
+        } catch (e) {
+            console.warn('[engine] moduleManager.dispose failed', e);
         }
     }
 

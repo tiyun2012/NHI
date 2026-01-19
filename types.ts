@@ -112,6 +112,7 @@ export interface IGameSystem {
     init?: (ctx: ModuleContext) => void;
     update?: (dt: number, ctx: ModuleContext) => void;
     render?: (gl: WebGL2RenderingContext, viewProj: Float32Array, ctx: ModuleContext) => void;
+    dispose?: (ctx: ModuleContext) => void;// Optional cleanup hook
     onEntityDestroyed?: (entityId: string, ctx: ModuleContext) => void;
     onComponentAdded?: (entityId: string, componentType: ComponentType, ctx: ModuleContext) => void;
     onComponentRemoved?: (entityId: string, componentType: ComponentType, ctx: ModuleContext) => void;

@@ -51,7 +51,7 @@ function createRegistryProxy<T extends object>(label: string, src: () => any, lo
                             // 2. In-App Console (History)
                             consoleService.cmd(cmdStr);
 
-                            return (fn as Function).apply(this, args);
+                            return (fn as Function).apply(target, args);
                         };
                     }
                     return fn;
