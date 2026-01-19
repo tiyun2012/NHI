@@ -76,6 +76,18 @@ export interface SnapSettings {
     scale: number;  // Factor (e.g. 0.1)
 }
 
+export interface SkeletonOptions {
+    enabled: boolean;
+    drawJoints: boolean;
+    drawBones: boolean;
+    drawAxes: boolean;
+    jointRadius: number;
+    rootScale: number;
+    boneColor: { r: number; g: number; b: number };
+    rootColor: { r: number; g: number; b: number };
+    border: number;
+}
+
 // --- MODULAR SYSTEM TYPES ---
 
 export interface ModuleContext {

@@ -1,4 +1,5 @@
-import type { SkeletonAsset, SkeletalMeshAsset } from '@/types';
+
+import type { SkeletonAsset, SkeletalMeshAsset, SkeletonOptions } from '@/types';
 import type { DebugRenderer } from '../renderers/DebugRenderer';
 import type { Vec3 } from '../math';
 
@@ -11,27 +12,8 @@ import type { Vec3 } from '../math';
  * - This version is created per Engine instance and only depends on a small runtime surface.
  */
 
-export interface SkeletonToolOptions {
-  enabled: boolean;
-  drawJoints: boolean;
-  drawBones: boolean;
-  drawAxes: boolean;
-
-  /** Joint size in screen pixels (DebugRenderer point size). */
-  jointRadius: number;
-
-  /** Multiplier applied to the root joint size. */
-  rootScale: number;
-
-  /** Default bone line color (used when a bone has no visual.color). */
-  boneColor: { r: number; g: number; b: number };
-
-  /** Default root joint color (used when root has no visual.color). */
-  rootColor: { r: number; g: number; b: number };
-
-  /** Debug point outline thickness (0..1). */
-  border: number;
-}
+// Use SkeletonOptions from global types to align with API
+export type SkeletonToolOptions = SkeletonOptions;
 
 export const DEFAULT_SKELETON_TOOL_OPTIONS: SkeletonToolOptions = {
   enabled: true,

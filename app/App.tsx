@@ -25,10 +25,22 @@ import { SkinningEditor } from '@/editor/components/SkinningEditor';
 import { ToolOptionsPanel } from '@/editor/components/ToolOptionsPanel'; 
 import { WorkspaceShell } from '@/editor/components/WorkspaceShell';
 
+// Registries
+import { toolRegistry } from '@/editor/registries/ToolRegistry';
+import { TransformToolOptions } from '@/editor/toolOptions/TransformToolOptions';
+import { SelectToolInfo } from '@/editor/toolOptions/SelectToolInfo';
+
 // --- Core module registration (editor-only; keeps engine core decoupled from React) ---
 let __coreModulesRegistered = false;
 if (!__coreModulesRegistered) {
   registerCoreModules(engineInstance.physicsSystem, engineInstance.particleSystem, engineInstance.animationSystem);
+  
+  // Register Tool UIs
+  toolRegistry.register('SELECT', SelectToolInfo);
+  toolRegistry.register('MOVE', TransformToolOptions);
+  toolRegistry.register('ROTATE', TransformToolOptions);
+  toolRegistry.register('SCALE', TransformToolOptions);
+  
   __coreModulesRegistered = true;
 }
 
@@ -376,11 +388,6 @@ const App: React.FC = () => {
 
     const onNodeDataChangeRef = useRef<((nodeId: string, key: string, value: any) => void) | null>(null);
 
-    // Sync Skeleton visualization settings to the engine debug tool
-    useEffect(() => {
-        engineInstance.skeletonTool.setOptions(skeletonViz);
-    }, [skeletonViz]);
-
     useEffect(() => {
         const update = () => {
             setEntities(engineInstance.ecs.getAllProxies(engineInstance.sceneGraph));
@@ -389,6 +396,13 @@ const App: React.FC = () => {
         update();
         return engineInstance.subscribe(update);
     }, []);
+
+    // Listen for selection changes from the engine (e.g. from marquee tool) and update React state
+    useEffect(() => {
+        return api.subscribe('selection:changed', (payload) => {
+            setSelectedIds(payload.ids);
+        });
+    }, [api]);
 
     // Sync mesh component mode to engine
     useEffect(() => {
@@ -456,6 +470,12 @@ const App: React.FC = () => {
         api.commands.sculpt.setHeatmapVisible(visible);
     }, [api]);
 
+    // Command Wrappers for Skeleton Visualization
+    const handleSetSkeletonViz = useCallback((settings: SkeletonVizSettings) => {
+        setSkeletonViz(settings);
+        api.commands.skeleton.setOptions(settings);
+    }, [api]);
+
     const contextValue = useMemo<EditorContextType>(() => ({
         entities,
         sceneGraph: engineInstance.sceneGraph,
@@ -503,15 +523,16 @@ const App: React.FC = () => {
         snapSettings,
         setSnapSettings,
 
-        // Skeleton visualization (shared between Tool Options + Inspector)
+        // Skeleton visualization
         skeletonViz,
-        setSkeletonViz
+        setSkeletonViz: handleSetSkeletonViz
     }), [
         entities, selectedIds, selectedAssetIds, inspectedNode, activeGraphConnections, 
         selectionType, meshComponentMode, tool, transformSpace, uiConfig, gridConfig, 
         snapSettings, skeletonViz, engineInstance.isPlaying, simulationMode, softSelectionEnabled, softSelectionRadius, softSelectionMode,
         softSelectionFalloff, softSelectionHeatmapVisible, handleSetSelectedIds, handleSetMeshComponentMode,
-        handleSetSoftSelectionEnabled, handleSetSoftSelectionRadius, handleSetSoftSelectionMode, handleSetSoftSelectionFalloff, handleSetSoftSelectionHeatmapVisible
+        handleSetSoftSelectionEnabled, handleSetSoftSelectionRadius, handleSetSoftSelectionMode, handleSetSoftSelectionFalloff, handleSetSoftSelectionHeatmapVisible,
+        handleSetSkeletonViz
     ]);
 
     return (

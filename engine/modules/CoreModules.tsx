@@ -1,50 +1,24 @@
+
 import React, { useContext } from 'react';
-import { EngineModule, ComponentType, InspectorProps, TransformSpace, StaticMeshAsset, SkeletalMeshAsset, IGameSystem } from '@/types';
+import { EngineModule, ComponentType, InspectorProps, TransformSpace, IGameSystem } from '@/types';
 import { EditorContext } from '@/editor/state/EditorContext';
-import { Select } from '@/editor/components/ui/Select';
 import { ROTATION_ORDERS, LIGHT_TYPES, COMPONENT_MASKS } from '../constants';
 import { assetManager } from '../AssetManager';
 import { moduleManager } from '../ModuleManager';
-import { Vec3Utils } from '../math';
 import { effectRegistry } from '../EffectRegistry'; 
 import { PhysicsSystem } from '../systems/PhysicsSystem';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { AnimationSystem } from '../systems/AnimationSystem';
+import { Vec3Utils } from '../math';
 
-const DraggableNumber: React.FC<{ 
-  label: string; value: number; onChange: (val: number) => void; step?: number; color?: string; disabled?: boolean;
-}> = ({ label, value, onChange, step = 0.01, color, disabled }) => {
-  return (
-    <div className={`flex items-center bg-black/20 rounded overflow-hidden border border-transparent ${disabled ? 'opacity-50' : 'focus-within:border-accent'} group`}>
-      <div className={`w-6 flex items-center justify-center text-[10px] font-bold h-6 ${color || 'text-text-secondary'}`}>{label}</div>
-      <input 
-        type="number" 
-        className={`flex-1 bg-transparent text-xs p-1 outline-none text-white min-w-0 text-right pr-2 ${disabled ? 'cursor-not-allowed' : ''}`} 
-        value={value === undefined ? 0 : Number(value).toFixed(3)} 
-        onChange={e => !disabled && onChange(parseFloat(e.target.value))} 
-        step={step}
-        disabled={disabled}
-      />
-    </div>
-  );
-};
-
-const Vector3Input: React.FC<{ label: string; value: {x:number, y:number, z:number}; onChange: (v: {x:number, y:number, z:number}) => void; disabled?: boolean }> = ({ label, value, onChange, disabled }) => (
-    <div className="flex flex-col gap-1 mb-2">
-        <div className="text-[9px] uppercase text-text-secondary font-bold tracking-wider ml-1 opacity-70">{label}</div>
-        <div className="grid grid-cols-3 gap-1">
-            <DraggableNumber label="X" value={value.x} onChange={v => onChange({...value, x: v})} color="text-red-500" disabled={disabled} />
-            <DraggableNumber label="Y" value={value.y} onChange={v => onChange({...value, y: v})} color="text-green-500" disabled={disabled} />
-            <DraggableNumber label="Z" value={value.z} onChange={v => onChange({...value, z: v})} color="text-blue-500" disabled={disabled} />
-        </div>
-    </div>
-);
+// Import New UI Widgets
+import { NumberInput, VectorInput, Select, Checkbox, ColorInput } from '@/editor/components/ui';
 
 const TransformInspector: React.FC<InspectorProps> = ({ component, onUpdate, onStartUpdate, onCommit }) => {
     const editorCtx = useContext(EditorContext);
     return (
         <div className="space-y-3">
-            <Vector3Input label="Position" value={component.position} onChange={v => { onStartUpdate(); onUpdate('position', v); onCommit(); }} />
+            <VectorInput label="Position" value={component.position} onChange={v => { onStartUpdate(); onUpdate('position', v); onCommit(); }} />
             
             <div className="flex flex-col gap-1 mb-2">
                  <div className="flex justify-between items-center">
@@ -59,13 +33,13 @@ const TransformInspector: React.FC<InspectorProps> = ({ component, onUpdate, onS
                     </div>
                  </div>
                 <div className="grid grid-cols-3 gap-1">
-                  <DraggableNumber label="X" value={component.rotation.x} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, x: v}); onCommit(); }} color="text-red-500" />
-                  <DraggableNumber label="Y" value={component.rotation.y} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, y: v}); onCommit(); }} color="text-green-500" />
-                  <DraggableNumber label="Z" value={component.rotation.z} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, z: v}); onCommit(); }} color="text-blue-500" />
+                  <NumberInput label="X" value={component.rotation.x} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, x: v}); onCommit(); }} color="text-red-500" />
+                  <NumberInput label="Y" value={component.rotation.y} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, y: v}); onCommit(); }} color="text-green-500" />
+                  <NumberInput label="Z" value={component.rotation.z} onChange={(v) => { onStartUpdate(); onUpdate('rotation', {...component.rotation, z: v}); onCommit(); }} color="text-blue-500" />
                 </div>
             </div>
 
-            <Vector3Input label="Scale" value={component.scale} onChange={v => { onStartUpdate(); onUpdate('scale', v); onCommit(); }} />
+            <VectorInput label="Scale" value={component.scale} onChange={v => { onStartUpdate(); onUpdate('scale', v); onCommit(); }} />
         </div>
     );
 };
@@ -107,7 +81,7 @@ const MeshInspector: React.FC<InspectorProps> = ({ component, onUpdate, onStartU
              <div className="flex items-center gap-2">
                 <span className="w-24 text-text-secondary text-[10px]">Animation Clip</span>
                 <div className="flex-1">
-                   <DraggableNumber label="#" value={component.animationIndex || 0} onChange={(v) => { onStartUpdate(); onUpdate('animationIndex', Math.floor(v)); onCommit(); }} step={1} />
+                   <NumberInput label="#" value={component.animationIndex || 0} onChange={(v) => { onStartUpdate(); onUpdate('animationIndex', Math.floor(v)); onCommit(); }} step={1} />
                 </div>
              </div>
 
@@ -121,8 +95,8 @@ const MeshInspector: React.FC<InspectorProps> = ({ component, onUpdate, onStartU
              <div className="flex items-center gap-2">
                  <span className="w-24 text-text-secondary text-[10px]">Shadows</span>
                  <div className="flex gap-2">
-                    <label className="flex items-center gap-1"><input type="checkbox" defaultChecked /> Cast</label>
-                    <label className="flex items-center gap-1"><input type="checkbox" defaultChecked /> Receive</label>
+                    <Checkbox label="Cast" checked={true} onChange={()=>{}} />
+                    <Checkbox label="Receive" checked={true} onChange={()=>{}} />
                  </div>
              </div>
         </div>
@@ -136,8 +110,10 @@ export const MeshModule: EngineModule = {
     order: 10,
     InspectorComponent: MeshInspector,
     onRender: (gl, viewProj, ctx) => {
+        // ... (Render logic same as before, omitted for brevity as only UI was requested to change) ...
+        // Keeping render logic intact:
         const engine = ctx.engine;
-        const selectedIndices = engine.selectionSystem.selectedIndices; // Updated
+        const selectedIndices = engine.selectionSystem.selectedIndices; 
         
         if (selectedIndices.size === 0 || engine.isPlaying) return;
         
@@ -163,7 +139,7 @@ export const MeshModule: EngineModule = {
             const meshIntId = ctx.ecs.store.meshType[idx];
             const assetUuid = assetManager.meshIntToUuid.get(meshIntId);
             if (!assetUuid) return;
-            const asset = assetManager.getAsset(assetUuid) as StaticMeshAsset;
+            const asset = assetManager.getAsset(assetUuid) as any;
             if (!asset || !asset.topology) return;
             
             const worldMat = ctx.scene.getWorldMatrix(entityId);
@@ -183,7 +159,7 @@ export const MeshModule: EngineModule = {
                         
                         if (!isObjectMode && !isVertexMode) {
                             const edgeKey = [vA, vB].sort((a,b)=>a-b).join('-');
-                            if (engine.selectionSystem.subSelection.edgeIds.has(edgeKey)) color = colSel; // Updated
+                            if (engine.selectionSystem.subSelection.edgeIds.has(edgeKey)) color = colSel; 
                         }
                         engine.debugRenderer.drawLine(pA, pB, color);
                     }
@@ -202,8 +178,8 @@ export const MeshModule: EngineModule = {
                     const wy = m1*x + m5*y + m9*z + m13;
                     const wz = m2*x + m6*y + m10*z + m14;
 
-                    const isSelected = engine.selectionSystem.subSelection.vertexIds.has(i); // Updated
-                    const isHovered = engine.selectionSystem.hoveredVertex?.entityId === entityId && engine.selectionSystem.hoveredVertex?.index === i; // Updated
+                    const isSelected = engine.selectionSystem.subSelection.vertexIds.has(i);
+                    const isHovered = engine.selectionSystem.hoveredVertex?.entityId === entityId && engine.selectionSystem.hoveredVertex?.index === i;
                     
                     let size = baseSize;
                     let border = 0.0;
@@ -236,10 +212,7 @@ const LightInspector: React.FC<InspectorProps> = ({ component, onUpdate, onStart
                    <Select value={component.lightType} options={LIGHT_TYPES.map(v => ({ label: v, value: v }))} onChange={(v) => { onStartUpdate(); onUpdate('lightType', v); onCommit(); }} />
                </div>
             </div>
-            <div className="flex items-center gap-2">
-               <span className="w-24 text-text-secondary text-[10px]">Color</span>
-               <input type="color" value={component.color} onChange={(e) => { onStartUpdate(); onUpdate('color', e.target.value); onCommit(); }} className="w-full h-6 bg-transparent border-none cursor-pointer" />
-            </div>
+            <ColorInput label="Color" value={component.color} onChange={(v) => { onStartUpdate(); onUpdate('color', v); onCommit(); }} />
             <div className="flex items-center gap-2">
                <span className="w-24 text-text-secondary text-[10px]">Intensity</span>
                <div className="flex-1">
@@ -265,18 +238,17 @@ const ParticleInspector: React.FC<InspectorProps> = ({ component, onUpdate, onSt
     return (
         <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
-                <DraggableNumber label="Rate" value={component.rate} onChange={v => { onStartUpdate(); onUpdate('rate', v); onCommit(); }} step={1} />
-                <DraggableNumber label="Max" value={component.maxParticles} onChange={v => { onStartUpdate(); onUpdate('maxParticles', v); onCommit(); }} step={10} />
+                <NumberInput label="Rate" value={component.rate} onChange={v => { onStartUpdate(); onUpdate('rate', v); onCommit(); }} step={1} />
+                <NumberInput label="Max" value={component.maxParticles} onChange={v => { onStartUpdate(); onUpdate('maxParticles', v); onCommit(); }} step={10} />
             </div>
             <div className="grid grid-cols-2 gap-2">
-                <DraggableNumber label="Speed" value={component.speed} onChange={v => { onStartUpdate(); onUpdate('speed', v); onCommit(); }} />
-                <DraggableNumber label="Life" value={component.lifetime} onChange={v => { onStartUpdate(); onUpdate('lifetime', v); onCommit(); }} />
+                <NumberInput label="Speed" value={component.speed} onChange={v => { onStartUpdate(); onUpdate('speed', v); onCommit(); }} />
+                <NumberInput label="Life" value={component.lifetime} onChange={v => { onStartUpdate(); onUpdate('lifetime', v); onCommit(); }} />
             </div>
             <div className="grid grid-cols-2 gap-2">
-                <DraggableNumber label="Size" value={component.size} onChange={v => { onStartUpdate(); onUpdate('size', v); onCommit(); }} />
+                <NumberInput label="Size" value={component.size} onChange={v => { onStartUpdate(); onUpdate('size', v); onCommit(); }} />
                 <div className="flex items-center gap-2">
-                   <span className="w-8 text-text-secondary text-[10px] font-bold">Color</span>
-                   <input type="color" value={component.color} onChange={(e) => { onStartUpdate(); onUpdate('color', e.target.value); onCommit(); }} className="w-full h-6 bg-transparent border-none cursor-pointer" />
+                   <ColorInput label="Color" value={component.color} onChange={(v) => { onStartUpdate(); onUpdate('color', v); onCommit(); }} className="flex-1" />
                 </div>
             </div>
             <div className="flex items-center gap-2">
@@ -328,12 +300,12 @@ const PhysicsInspector: React.FC<InspectorProps> = ({ component, onUpdate, onSta
             <div className="flex items-center gap-2">
                <span className="w-24 text-text-secondary text-[10px]">Mass (kg)</span>
                <div className="flex-1">
-                   <DraggableNumber label="" value={component.mass} onChange={(v) => { onStartUpdate(); onUpdate('mass', v); onCommit(); }} step={0.1} />
+                   <NumberInput label="" value={component.mass} onChange={(v) => { onStartUpdate(); onUpdate('mass', v); onCommit(); }} step={0.1} />
                </div>
             </div>
             <div className="flex items-center gap-2">
                <span className="w-24 text-text-secondary text-[10px]">Gravity</span>
-               <input type="checkbox" checked={component.useGravity} onChange={(e) => { onStartUpdate(); onUpdate('useGravity', e.target.checked); onCommit(); }} />
+               <Checkbox label="" checked={component.useGravity} onChange={(v) => { onStartUpdate(); onUpdate('useGravity', v); onCommit(); }} />
             </div>
             <div className="flex items-center gap-2 mt-2">
                <span className="w-24 text-text-secondary text-[10px]">Material</span>
@@ -372,7 +344,7 @@ const createAnimationSystemAdapter = (sys: AnimationSystem): IGameSystem => ({
             ctx.ecs, 
             ctx.scene,
             ctx.engine.debugRenderer, 
-            ctx.engine.selectionSystem.selectedIndices, // Updated
+            ctx.engine.selectionSystem.selectedIndices,
             ctx.engine.meshComponentMode
         );
     }
@@ -391,7 +363,7 @@ const PivotInspector: React.FC<InspectorProps> = ({ component, onUpdate, onStart
         <div className="flex items-center gap-2">
            <span className="w-24 text-text-secondary text-[10px]">Axis Length</span>
            <div className="flex-1">
-                <DraggableNumber label="L" value={(component as any).length} onChange={(v) => { onStartUpdate(); onUpdate('length', v); onCommit(); }} step={0.1} />
+                <NumberInput label="L" value={(component as any).length} onChange={(v) => { onStartUpdate(); onUpdate('length', v); onCommit(); }} step={0.1} />
            </div>
         </div>
     );

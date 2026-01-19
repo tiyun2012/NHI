@@ -4,10 +4,10 @@ import { Entity, Asset, GraphNode, ComponentType, SelectionType, StaticMeshAsset
 import { assetManager } from '@/engine/AssetManager';
 import { Icon } from './Icon';
 import { EditorContext } from '@/editor/state/EditorContext';
-import { Select } from './ui/Select';
-import { effectRegistry } from '@/engine/EffectRegistry';
-import { ROTATION_ORDERS } from '@/engine/constants';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+
+// Modular UI
+import { NumberInput, Checkbox, PanelSection, Button } from '@/editor/components/ui';
 
 interface InspectorPanelProps {
   object: Entity | Asset | GraphNode | null;
@@ -15,58 +15,6 @@ interface InspectorPanelProps {
   type?: SelectionType;
   isClone?: boolean;
 }
-
-const DraggableNumber: React.FC<{ 
-  label: string; value: number; onChange: (val: number) => void; step?: number; color?: string; disabled?: boolean;
-}> = ({ label, value, onChange, step = 0.01, color, disabled }) => {
-  return (
-    <div className={`flex items-center bg-black/20 rounded overflow-hidden border border-transparent ${disabled ? 'opacity-50' : 'focus-within:border-accent'} group`}>
-      <div className={`w-6 flex items-center justify-center text-[10px] font-bold h-6 ${color || 'text-text-secondary'}`}>{label}</div>
-      <input 
-        type="number" 
-        className={`flex-1 bg-transparent text-xs p-1 outline-none text-white min-w-0 text-right pr-2 ${disabled ? 'cursor-not-allowed' : ''}`} 
-        value={value === undefined ? 0 : Number(value).toFixed(3)} 
-        onChange={e => !disabled && onChange(parseFloat(e.target.value))} 
-        step={step}
-        disabled={disabled}
-      />
-    </div>
-  );
-};
-
-const Vector3Input: React.FC<{ label: string; value: {x:number, y:number, z:number}; onChange: (v: {x:number, y:number, z:number}) => void; disabled?: boolean }> = ({ label, value, onChange, disabled }) => (
-    <div className="flex flex-col gap-1 mb-2">
-        <div className="text-[9px] uppercase text-text-secondary font-bold tracking-wider ml-1 opacity-70">{label}</div>
-        <div className="grid grid-cols-3 gap-1">
-            <DraggableNumber label="X" value={value.x} onChange={v => onChange({...value, x: v})} color="text-red-500" disabled={disabled} />
-            <DraggableNumber label="Y" value={value.y} onChange={v => onChange({...value, y: v})} color="text-green-500" disabled={disabled} />
-            <DraggableNumber label="Z" value={value.z} onChange={v => onChange({...value, z: v})} color="text-blue-500" disabled={disabled} />
-        </div>
-    </div>
-);
-
-const ComponentCard: React.FC<{ 
-  component: any; 
-  title: string; 
-  icon: string; 
-  onRemove?: () => void;
-  children: React.ReactNode;
-}> = ({ component, title, icon, onRemove, children }) => {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="bg-panel-header border-b border-black/20">
-      <div className="flex items-center p-2 cursor-pointer hover:bg-white/5 select-none group" onClick={() => setOpen(!open)}>
-        <div className="mr-2 text-text-secondary group-hover:text-white transition-colors"><Icon name={open ? 'ChevronDown' : 'ChevronRight'} size={12} /></div>
-        <Icon name={icon as any} size={14} className="mr-2 text-accent" />
-        <span className="font-semibold text-xs text-gray-200 flex-1">{title}</span>
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-            {onRemove && <button className="p-1 hover:text-white text-text-secondary" title="Remove" onClick={(e) => { e.stopPropagation(); onRemove(); }}><Icon name="Trash2" size={12} /></button>}
-        </div>
-      </div>
-      {open && <div className="p-3 bg-panel border-t border-black/10 text-xs">{children}</div>}
-    </div>
-  );
-};
 
 const MeshModeSelector: React.FC<{ object: Entity }> = ({ object }) => {
     const { meshComponentMode, setMeshComponentMode } = useContext(EditorContext)!;
@@ -99,12 +47,9 @@ const MeshModeSelector: React.FC<{ object: Entity }> = ({ object }) => {
 
 // --- Helper to determine icon/color based on Entity components ---
 const getEntityInfo = (entity: Entity) => {
-    // This helper logic would ideally be in a shared utility or query, but okay for UI helper here.
     if (entity.components[ComponentType.LIGHT]) return { icon: 'Sun', color: 'bg-yellow-500', label: 'Light' };
     if (entity.components[ComponentType.PARTICLE_SYSTEM]) return { icon: 'Sparkles', color: 'bg-orange-500', label: 'Particle System' };
     
-    // We check for mesh component presence.
-    // Ideally we shouldn't access engine internals here, but for icon resolution we inspect components map.
     if (entity.components[ComponentType.MESH]) {
          return { icon: 'Box', color: 'bg-blue-600', label: 'Static Mesh' };
     }
@@ -160,11 +105,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
       const entity = activeObject as Entity;
       const comp = entity.components[compType];
       if (comp) { 
-          // We still mutate the proxy directly for now because the ECS is proxied.
-          // In the future, we could have a `commands.scene.updateComponentData(id, type, data)`
-          // But since the proxy setter triggers notifyUI internally, we just need to notify UI explicitly if we bypassed it, 
-          // or rely on the proxy.
-          // However, to be cleaner, we call api.commands.ui.notify() if needed.
           (comp as any)[field] = value; 
           api.commands.ui.notify(); 
       }
@@ -197,7 +137,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
   );
 
   if (activeType === 'ENTITY') {
-      const modules = api.queries.registry.getModules(); // Use API to get modules
+      const modules = api.queries.registry.getModules();
       const availableModules = modules.filter(m => !entity!.components[m.id]);
 
       return (
@@ -214,7 +154,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
                         <div className="text-[10px] text-text-secondary font-mono truncate select-all opacity-50">{entity!.id.substring(0,8)}...</div>
                      </div>
                  </div>
-                 {/* Active toggle currently directly mutates. Ideally: api.commands.scene.setEntityActive(id, val) */}
                  <input type="checkbox" checked={entity!.isActive} onChange={(e) => { api.commands.history.pushState(); entity!.isActive = e.target.checked; api.commands.ui.notify(); }} className="cursor-pointer" title="Active" />
                  {renderHeaderControls()}
              </div>
@@ -227,12 +166,13 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
                   const comp = entity!.components[mod.id];
                   if (!comp) return null;
                   return (
-                      <ComponentCard 
+                      <PanelSection 
                           key={mod.id} 
                           title={mod.name} 
-                          icon={mod.icon} 
-                          component={comp} 
-                          onRemove={mod.id === 'Transform' ? undefined : () => removeComponent(mod.id)}
+                          icon={mod.icon}
+                          rightElement={mod.id !== 'Transform' ? (
+                              <button className="p-1 hover:text-white text-text-secondary" title="Remove" onClick={(e) => { e.stopPropagation(); removeComponent(mod.id); }}><Icon name="Trash2" size={12} /></button>
+                          ) : undefined}
                       >
                           <mod.InspectorComponent 
                               entity={entity!}
@@ -241,12 +181,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
                               onStartUpdate={() => api.commands.history.pushState()}
                               onCommit={() => api.commands.ui.notify()}
                           />
-                      </ComponentCard>
+                      </PanelSection>
                   );
               })}
 
                <div className="p-4 flex justify-center pb-8 relative">
-                <button className="bg-accent/20 hover:bg-accent/40 text-accent border border-accent/50 text-xs px-6 py-2 rounded-full font-semibold transition-all" onClick={(e) => { e.stopPropagation(); setShowAddComponent(!showAddComponent); }}>Add Component</button>
+                <Button variant="secondary" onClick={(e) => { e.stopPropagation(); setShowAddComponent(!showAddComponent); }}>Add Component</Button>
                 {showAddComponent && (
                     <div className="absolute top-12 w-48 bg-[#252525] border border-white/10 shadow-xl rounded-md z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
                         {availableModules.length > 0 ? (
@@ -273,9 +213,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
       if (activeType === 'EDGE') { count = subSel.edgeIds.size; label = 'Edges'; }
       if (activeType === 'FACE') { count = subSel.faceIds.size; label = 'Faces'; }
 
-      // ... Vertex data display (simplified for this refactor to avoid engine imports inside render logic if possible, 
-      // but reading asset manager here is okay for now as it's a data store) ...
-      
       return (
         <div className="h-full bg-panel flex flex-col font-sans border-l border-black/20">
             <div className="p-4 border-b border-black/20 bg-panel-header flex items-center gap-3">
@@ -310,74 +247,46 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
             <div className="p-4 space-y-4">
                 {asset.type === 'PHYSICS_MATERIAL' && (
                     <>
-                        <DraggableNumber label="Static Friction" value={Number((asset as PhysicsMaterialAsset).data.staticFriction)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {staticFriction:v}); setRefresh(r=>r+1); }} step={0.05} />
-                        <DraggableNumber label="Dynamic Friction" value={Number((asset as PhysicsMaterialAsset).data.dynamicFriction)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {dynamicFriction:v}); setRefresh(r=>r+1); }} step={0.05} />
-                        <DraggableNumber label="Bounciness" value={Number((asset as PhysicsMaterialAsset).data.bounciness)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {bounciness:v}); setRefresh(r=>r+1); }} step={0.05} />
+                        <NumberInput label="Static Friction" value={Number((asset as PhysicsMaterialAsset).data.staticFriction)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {staticFriction:v}); setRefresh(r=>r+1); }} step={0.05} />
+                        <NumberInput label="Dynamic Friction" value={Number((asset as PhysicsMaterialAsset).data.dynamicFriction)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {dynamicFriction:v}); setRefresh(r=>r+1); }} step={0.05} />
+                        <NumberInput label="Bounciness" value={Number((asset as PhysicsMaterialAsset).data.bounciness)} onChange={v => { assetManager.updatePhysicsMaterial(asset.id, {bounciness:v}); setRefresh(r=>r+1); }} step={0.05} />
                     </>
                 )}
 
-{(asset.type === 'SKELETON' || asset.type === 'SKELETAL_MESH') && (
-    <>
-        <div className="flex items-center gap-2 text-[10px] font-bold text-text-secondary uppercase tracking-wider pt-2 border-t border-white/5">
-            <Icon name="Bone" size={12} /> Skeleton Display
-        </div>
-        <div className="text-xs text-text-secondary">
-            Bones: {((asset as any).skeleton?.bones?.length ?? 0)}
-            {asset.type === 'SKELETAL_MESH' && (asset as any).skeletonAssetId ? (
-                <span className="ml-2 opacity-80">• Linked Skeleton: {(asset as any).skeletonAssetId}</span>
-            ) : null}
-        </div>
+                {(asset.type === 'SKELETON' || asset.type === 'SKELETAL_MESH') && (
+                    <>
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-text-secondary uppercase tracking-wider pt-2 border-t border-white/5">
+                            <Icon name="Bone" size={12} /> Skeleton Display
+                        </div>
+                        <div className="text-xs text-text-secondary">
+                            Bones: {((asset as any).skeleton?.bones?.length ?? 0)}
+                            {asset.type === 'SKELETAL_MESH' && (asset as any).skeletonAssetId ? (
+                                <span className="ml-2 opacity-80">• Linked Skeleton: {(asset as any).skeletonAssetId}</span>
+                            ) : null}
+                        </div>
 
-        <label className="flex items-center justify-between text-xs cursor-pointer">
-            <span className="text-text-primary">Enabled</span>
-            <input
-                type="checkbox"
-                checked={skeletonViz.enabled}
-                onChange={e => setSkeletonViz({ ...skeletonViz, enabled: e.target.checked })}
-            />
-        </label>
+                        <Checkbox label="Enable Debug" checked={skeletonViz.enabled} onChange={e => setSkeletonViz({ ...skeletonViz, enabled: e })} />
 
-        <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input
-                    type="checkbox"
-                    checked={skeletonViz.drawJoints}
-                    onChange={e => setSkeletonViz({ ...skeletonViz, drawJoints: e.target.checked })}
-                />
-                <span className="text-text-primary">Joints</span>
-            </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input
-                    type="checkbox"
-                    checked={skeletonViz.drawBones}
-                    onChange={e => setSkeletonViz({ ...skeletonViz, drawBones: e.target.checked })}
-                />
-                <span className="text-text-primary">Bones</span>
-            </label>
-             <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input
-                    type="checkbox"
-                    checked={skeletonViz.drawAxes}
-                    onChange={e => setSkeletonViz({ ...skeletonViz, drawAxes: e.target.checked })}
-                />
-                <span className="text-text-primary">Axes</span>
-            </label>
-        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Checkbox label="Joints" checked={skeletonViz.drawJoints} onChange={e => setSkeletonViz({ ...skeletonViz, drawJoints: e })} />
+                            <Checkbox label="Bones" checked={skeletonViz.drawBones} onChange={e => setSkeletonViz({ ...skeletonViz, drawBones: e })} />
+                            <Checkbox label="Axes" checked={skeletonViz.drawAxes} onChange={e => setSkeletonViz({ ...skeletonViz, drawAxes: e })} />
+                        </div>
 
-        <DraggableNumber
-            label="Joint Radius (px)"
-            value={skeletonViz.jointRadius}
-            onChange={v => setSkeletonViz({ ...skeletonViz, jointRadius: Math.max(2, Math.min(50, v)) })}
-            step={1}
-        />
-        <DraggableNumber
-            label="Root Scale"
-            value={skeletonViz.rootScale}
-            onChange={v => setSkeletonViz({ ...skeletonViz, rootScale: Math.max(1, Math.min(4, v)) })}
-            step={0.05}
-        />
-    </>
-)}
+                        <NumberInput
+                            label="Joint Radius"
+                            value={skeletonViz.jointRadius}
+                            onChange={v => setSkeletonViz({ ...skeletonViz, jointRadius: Math.max(2, Math.min(50, v)) })}
+                            step={1}
+                        />
+                        <NumberInput
+                            label="Root Scale"
+                            value={skeletonViz.rootScale}
+                            onChange={v => setSkeletonViz({ ...skeletonViz, rootScale: Math.max(1, Math.min(4, v)) })}
+                            step={0.05}
+                        />
+                    </>
+                )}
             </div>
         </div>
       );

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Entity, ToolType, TransformSpace, SelectionType, GraphNode, GraphConnection, MeshComponentMode, SimulationMode, SoftSelectionFalloff, UIConfiguration, GridConfiguration, SnapSettings } from '@/types';
+import { Entity, ToolType, TransformSpace, SelectionType, GraphNode, GraphConnection, MeshComponentMode, SimulationMode, SoftSelectionFalloff, UIConfiguration, GridConfiguration, SnapSettings, SkeletonOptions } from '@/types';
 import { SceneGraph } from '@/engine/SceneGraph';
 import type { SoftSelectionMode } from '@/engine/engine';
 import { DEFAULT_UI_CONFIG, DEFAULT_GRID_CONFIG, DEFAULT_SNAP_CONFIG } from '@/engine/config/defaults';
@@ -9,16 +9,8 @@ export type { UIConfiguration, GridConfiguration, SnapSettings };
 
 export { DEFAULT_UI_CONFIG, DEFAULT_GRID_CONFIG, DEFAULT_SNAP_CONFIG };
 
-
-
-export interface SkeletonVizSettings {
-  enabled: boolean;
-  drawJoints: boolean;
-  drawBones: boolean;
-  drawAxes: boolean; // New option
-  jointRadius: number; // px
-  rootScale: number;
-}
+// Alias SkeletonOptions to SkeletonVizSettings for backward compatibility with existing UI code
+export type SkeletonVizSettings = SkeletonOptions;
 
 export const DEFAULT_SKELETON_VIZ: SkeletonVizSettings = {
   enabled: true,
@@ -26,7 +18,10 @@ export const DEFAULT_SKELETON_VIZ: SkeletonVizSettings = {
   drawBones: true,
   drawAxes: false,
   jointRadius: 10,
-  rootScale: 1.6
+  rootScale: 1.6,
+  boneColor: { r: 0.5, g: 0.5, b: 0.5 },
+  rootColor: { r: 0.2, g: 1.0, b: 0.2 },
+  border: 0.2
 };
 
 

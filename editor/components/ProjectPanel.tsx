@@ -13,6 +13,7 @@ import { StaticMeshEditor } from './StaticMeshEditor';
 import { consoleService } from '@/engine/Console';
 import { Asset, AssetType } from '@/types';
 import { eventBus } from '@/engine/EventBus';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
 
 type ViewMode = 'GRID' | 'LIST';
 
@@ -106,6 +107,7 @@ const AssetItem: React.FC<{
 export const ProjectPanel: React.FC = () => {
     const { selectedAssetIds, setSelectedAssetIds, setInspectedNode } = useContext(EditorContext)!;
     const wm = useContext(WindowManagerContext);
+    const api = useEngineAPI();
     
     const [currentPath, setCurrentPath] = useState('/Content');
     const [viewMode, setViewMode] = useState<ViewMode>('GRID');
@@ -197,7 +199,7 @@ export const ProjectPanel: React.FC = () => {
         } 
         else if (asset.type === 'SCENE') {
             if (confirm("Load Scene? Unsaved changes will be lost.")) {
-                engineInstance.loadSceneFromAsset(asset.id);
+                api.commands.scene.loadSceneFromAsset(asset.id);
             }
         }
     };
@@ -397,7 +399,10 @@ export const ProjectPanel: React.FC = () => {
                                     <>
                                         <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" 
                                             onClick={() => { 
-                                                const newId = engineInstance.createEntityFromAsset(contextMenu.assetId!, { x: 0, y: 0, z: 0 });
+                                                const newId = api.commands.scene.createEntityFromAsset(contextMenu.assetId!, { x: 0, y: 0, z: 0 });
+                                                if (newId) {
+                                                    api.commands.selection.setSelected([newId]);
+                                                }
                                                 setContextMenu(null);
                                             }}>
                                             <Icon name="PlusSquare" size={14} /> Place in Scene

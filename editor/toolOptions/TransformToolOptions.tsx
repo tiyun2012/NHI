@@ -1,5 +1,7 @@
-import React from 'react';
+
+import React, { useContext } from 'react';
 import type { ToolType, TransformSpace } from '@/types';
+import { EditorContext } from '@/editor/state/EditorContext';
 import { Select } from '@/editor/components/ui/Select';
 import { ToolSection } from './ToolSection';
 
@@ -38,11 +40,11 @@ function getTitle(tool: ToolType) {
   return { title: 'Transform Settings', icon: 'Move' };
 }
 
-export const TransformToolOptions: React.FC<{
-  tool: ToolType;
-  transformSpace: TransformSpace;
-  setTransformSpace: (space: TransformSpace) => void;
-}> = ({ tool, transformSpace, setTransformSpace }) => {
+export const TransformToolOptions: React.FC = () => {
+  const ctx = useContext(EditorContext);
+  if (!ctx) return null;
+  const { tool, transformSpace, setTransformSpace } = ctx;
+
   if (tool !== 'MOVE' && tool !== 'ROTATE' && tool !== 'SCALE') return null;
 
   const { title, icon } = getTitle(tool);

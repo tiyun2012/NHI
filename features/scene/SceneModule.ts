@@ -54,6 +54,19 @@ export const SceneModule: EngineModule = {
         ctx.engine.ecs.removeComponent(id, type as ComponentType);
         ctx.engine.notifyUI();
         ctx.events.emit('component:removed', { id, type: type as ComponentType });
+      },
+
+      createEntityFromAsset(assetId, pos) {
+        const id = ctx.engine.createEntityFromAsset(assetId, pos);
+        if (id) {
+            ctx.events.emit('scene:entityCreated', { id });
+        }
+        return id;
+      },
+
+      loadSceneFromAsset(assetId) {
+        ctx.engine.loadSceneFromAsset(assetId);
+        // loadSceneFromAsset internally handles notification and selection clearing
       }
     });
   },

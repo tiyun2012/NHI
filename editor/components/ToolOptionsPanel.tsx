@@ -1,26 +1,18 @@
-import React, { useContext } from 'react';
+
+import React, { useContext, useMemo } from 'react';
 import { EditorContext } from '@/editor/state/EditorContext';
-import { TransformToolOptions } from '@/editor/toolOptions/TransformToolOptions';
-import { SelectToolInfo } from '@/editor/toolOptions/SelectToolInfo';
-import { SnapOptions } from '@/editor/toolOptions/SnapOptions';
-import { SoftSelectionOptions } from '@/editor/toolOptions/SoftSelectionOptions';
+import { toolRegistry } from '@/editor/registries/ToolRegistry';
 import { MeshToolsSection } from '@/editor/toolOptions/MeshToolsSection';
 import { SkeletonDisplayOptions } from '@/editor/toolOptions/SkeletonDisplayOptions';
+import { SoftSelectionOptions } from '@/editor/toolOptions/SoftSelectionOptions';
+import { SnapOptions } from '@/editor/toolOptions/SnapOptions';
 
-/**
- * Tool options panel is now composed from small, reusable blocks.
- *
- * These blocks accept props (instead of reaching into EditorContext directly),
- * so they can be embedded in other widgets/windows (asset preview, modal, etc).
- */
 export const ToolOptionsPanel: React.FC = () => {
   const ctx = useContext(EditorContext);
   if (!ctx) return null;
 
   const {
     tool,
-    transformSpace,
-    setTransformSpace,
     meshComponentMode,
     softSelectionEnabled,
     setSoftSelectionEnabled,
@@ -38,6 +30,8 @@ export const ToolOptionsPanel: React.FC = () => {
     setSkeletonViz,
   } = ctx;
 
+  const ToolComponent = useMemo(() => toolRegistry.get(tool), [tool]);
+
   return (
     <div className="h-full bg-panel flex flex-col font-sans">
       {/* Header */}
@@ -49,10 +43,13 @@ export const ToolOptionsPanel: React.FC = () => {
       </div>
 
       <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-        {/* Active tool */}
-        {tool === 'SELECT' && <SelectToolInfo />}
-
-        <TransformToolOptions tool={tool} transformSpace={transformSpace} setTransformSpace={setTransformSpace} />
+        
+        {/* Dynamic Tool Options from Registry */}
+        {ToolComponent ? <ToolComponent /> : (
+            <div className="text-[10px] text-text-secondary italic pb-2 border-b border-white/5">
+                No specific options for this tool.
+            </div>
+        )}
 
         {/* Global snapping */}
         <SnapOptions snapSettings={snapSettings} setSnapSettings={setSnapSettings} />

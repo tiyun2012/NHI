@@ -231,7 +231,9 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         if (e.button === 2 && !e.altKey) {
             const hitId = engineInstance.selectionSystem.selectEntityAt(mx, my, rect.width, rect.height);
             if (hitId) {
-                if (!selectedIds.includes(hitId)) onSelect([hitId]);
+                if (!selectedIds.includes(hitId)) {
+                    api.commands.selection.setSelected([hitId]);
+                }
                 openPieMenu(e.clientX, e.clientY, hitId);
             } else if (selectedIds.length > 0) {
                 openPieMenu(e.clientX, e.clientY);
@@ -271,9 +273,9 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                 if (hitId) {
                     if (e.shiftKey) {
                         const newSel = selectedIds.includes(hitId) ? selectedIds.filter(id => id !== hitId) : [...selectedIds, hitId];
-                        onSelect(newSel);
+                        api.commands.selection.setSelected(newSel);
                     } else {
-                        onSelect([hitId]);
+                        api.commands.selection.setSelected([hitId]);
                     }
                 } else {
                     setSelectionBox({ startX: mx, startY: my, currentX: mx, currentY: my, isSelecting: true });
@@ -299,20 +301,15 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
             const h = Math.abs(selectionBox.currentY - selectionBox.startY);
             
             if (w > 3 || h > 3) {
-                const hitIds = engineInstance.selectionSystem.selectEntitiesInRect(x, y, w, h);
-                if (e.shiftKey) {
-                    const nextSelection = new Set(selectedIds);
-                    hitIds.forEach(id => {
-                        if (nextSelection.has(id)) nextSelection.delete(id);
-                        else nextSelection.add(id);
-                    });
-                    onSelect(Array.from(nextSelection));
-                } else {
-                    onSelect(hitIds);
-                }
+                // Use new stable API for marquee selection
+                api.commands.selection.selectInRect(
+                    { x, y, w, h }, 
+                    meshComponentMode, 
+                    e.shiftKey ? 'ADD' : 'SET'
+                );
             } else {
                 if (!e.shiftKey && e.button === 0) {
-                    onSelect([]);
+                    api.commands.selection.clear();
                 }
             }
             setSelectionBox(null);
@@ -406,9 +403,11 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                 } else {
                     pos = Vec3Utils.add(ray.origin, Vec3Utils.scale(ray.direction, 10, {x:0,y:0,z:0}), {x:0,y:0,z:0});
                 }
-                const id = engineInstance.createEntityFromAsset(assetId, pos);
+                
+                // Use API command for creation
+                const id = api.commands.scene.createEntityFromAsset(assetId, pos);
                 if (id) {
-                    onSelect([id]);
+                    api.commands.selection.setSelected([id]);
                 } else {
                     consoleService.warn("Failed to drop asset. Check console for details.", "SceneView");
                 }

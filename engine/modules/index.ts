@@ -7,6 +7,7 @@ import { HistoryModule } from '@/features/history/HistoryModule';
 import { UIModule } from '@/features/ui/UIModule';
 import { SculptModule } from '@/features/sculpt/SculptModule';
 import { ModelingModule } from '@/features/modeling/ModelingModule';
+import { SkeletonModule } from '@/features/skeleton/SkeletonModule';
 
 export const MODULES: readonly EngineModule[] = [
   CoreModule,
@@ -15,5 +16,6 @@ export const MODULES: readonly EngineModule[] = [
   HistoryModule,
   UIModule,
   SculptModule,
-  ModelingModule
+  ModelingModule,
+  SkeletonModule
 ];

@@ -1,5 +1,5 @@
 
-import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule } from '@/types';
+import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';
 
@@ -32,6 +32,8 @@ export interface EngineCommands {
     reparentEntity(childId: string, parentId: string | null): void;
     addComponent(id: string, type: string): void;
     removeComponent(id: string, type: string): void;
+    createEntityFromAsset(assetId: string, pos: { x: number; y: number; z: number }): string | null;
+    loadSceneFromAsset(assetId: string): void;
   };
   modeling: {
     extrudeFaces(): void;
@@ -54,6 +56,9 @@ export interface EngineCommands {
     setMode(mode: SoftSelectionMode): void;
     setFalloff(falloff: SoftSelectionFalloff): void;
     setHeatmapVisible(visible: boolean): void;
+  };
+  skeleton: {
+    setOptions(options: Partial<SkeletonOptions>): void;
   };
 }
 
