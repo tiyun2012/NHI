@@ -1,13 +1,16 @@
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { Entity, Asset, GraphNode, ComponentType, SelectionType, StaticMeshAsset, MeshComponentMode, PhysicsMaterialAsset, InspectorProps, TransformSpace, EngineModule } from '@/types';
 import { assetManager } from '@/engine/AssetManager';
 import { Icon } from './Icon';
 import { EditorContext } from '@/editor/state/EditorContext';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { uiRegistry } from '@/editor/registries/UIRegistry';
 
 // Modular UI
 import { NumberInput, Checkbox, PanelSection, Button } from '@/editor/components/ui';
+// Add missing import for SkeletonDisplayOptions
+import { SkeletonDisplayOptions } from '@/editor/toolOptions/SkeletonDisplayOptions';
 
 interface InspectorPanelProps {
   object: Entity | Asset | GraphNode | null;
@@ -45,18 +48,12 @@ const MeshModeSelector: React.FC<{ object: Entity }> = ({ object }) => {
     );
 };
 
-// --- Helper to determine icon/color based on Entity components ---
 const getEntityInfo = (entity: Entity) => {
     if (entity.components[ComponentType.LIGHT]) return { icon: 'Sun', color: 'bg-yellow-500', label: 'Light' };
     if (entity.components[ComponentType.PARTICLE_SYSTEM]) return { icon: 'Sparkles', color: 'bg-orange-500', label: 'Particle System' };
-    
-    if (entity.components[ComponentType.MESH]) {
-         return { icon: 'Box', color: 'bg-blue-600', label: 'Static Mesh' };
-    }
-
+    if (entity.components[ComponentType.MESH]) return { icon: 'Box', color: 'bg-blue-600', label: 'Static Mesh' };
     if (entity.components[ComponentType.VIRTUAL_PIVOT]) return { icon: 'Maximize', color: 'bg-emerald-600', label: 'Helper' };
     if (entity.name.includes('Camera')) return { icon: 'Video', color: 'bg-red-500', label: 'Camera' };
-
     return { icon: 'Cuboid', color: 'bg-gray-600', label: 'Entity' };
 };
 
@@ -64,24 +61,27 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
   const api = useEngineAPI();
   const [isLocked, setIsLocked] = useState(isClone);
   const [snapshot, setSnapshot] = useState<{ object: any, type: any } | null>(null);
-  const { skeletonViz, setSkeletonViz } = useContext(EditorContext)!;
   const [name, setName] = useState('');
   const [refresh, setRefresh] = useState(0); 
   const [showAddComponent, setShowAddComponent] = useState(false);
+  const [, setRegistryTick] = useState(0);
+
+  useEffect(() => {
+    return api.subscribe('ui:registryChanged', () => setRegistryTick(t => t + 1));
+  }, [api]);
 
   const activeObject = isLocked ? (snapshot?.object ?? initialObject) : initialObject;
   const activeType = isLocked ? (snapshot?.type ?? initialType) : initialType;
 
-  const getEntity = (): Entity | null => {
+  const entity = useMemo((): Entity | null => {
       if (!activeObject) return null;
       if (activeType === 'ENTITY') return activeObject as Entity;
       if (['VERTEX', 'EDGE', 'FACE'].includes(activeType as string) && (activeObject as any).components) {
           return activeObject as Entity;
       }
       return null;
-  };
+  }, [activeObject, activeType]);
 
-  const entity = getEntity();
   const entityInfo = entity ? getEntityInfo(entity) : { icon: 'Box', color: 'bg-blue-500', label: 'Object' };
 
   useEffect(() => {
@@ -120,6 +120,11 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
       if (activeType !== 'ENTITY' || !activeObject) return;
       api.commands.scene.removeComponent((activeObject as Entity).id, compType);
   };
+
+  const dynamicSections = useMemo(() => [
+    ...uiRegistry.getSections('INSPECTOR'),
+    ...uiRegistry.getSections('GLOBAL')
+  ], [/* tick */]);
 
   if (!activeObject) {
     return (
@@ -185,7 +190,14 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
                   );
               })}
 
-               <div className="p-4 flex justify-center pb-8 relative">
+              {/* Dynamically registered widgets via API for this entity context */}
+              {dynamicSections.map(section => (
+                  <PanelSection key={section.id} title={section.title} icon={section.icon}>
+                      <section.component />
+                  </PanelSection>
+              ))}
+
+              <div className="p-4 flex justify-center pb-8 relative">
                 <Button variant="secondary" onClick={(e) => { e.stopPropagation(); setShowAddComponent(!showAddComponent); }}>Add Component</Button>
                 {showAddComponent && (
                     <div className="absolute top-12 w-48 bg-[#252525] border border-white/10 shadow-xl rounded-md z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
@@ -205,10 +217,8 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
   }
 
   if (['VERTEX', 'EDGE', 'FACE'].includes(activeType as string)) {
-      const subSel = api.queries.selection.getSubSelection(); // Use API query
-      
-      let count = 0;
-      let label = '';
+      const subSel = api.queries.selection.getSubSelection();
+      let count = 0; let label = '';
       if (activeType === 'VERTEX') { count = subSel.vertexIds.size; label = 'Vertices'; }
       if (activeType === 'EDGE') { count = subSel.edgeIds.size; label = 'Edges'; }
       if (activeType === 'FACE') { count = subSel.faceIds.size; label = 'Faces'; }
@@ -256,35 +266,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
                 {(asset.type === 'SKELETON' || asset.type === 'SKELETAL_MESH') && (
                     <>
                         <div className="flex items-center gap-2 text-[10px] font-bold text-text-secondary uppercase tracking-wider pt-2 border-t border-white/5">
-                            <Icon name="Bone" size={12} /> Skeleton Display
+                            <Icon name="Bone" size={12} /> Skeleton Context
                         </div>
                         <div className="text-xs text-text-secondary">
                             Bones: {((asset as any).skeleton?.bones?.length ?? 0)}
-                            {asset.type === 'SKELETAL_MESH' && (asset as any).skeletonAssetId ? (
-                                <span className="ml-2 opacity-80">• Linked Skeleton: {(asset as any).skeletonAssetId}</span>
-                            ) : null}
                         </div>
-
-                        <Checkbox label="Enable Debug" checked={skeletonViz.enabled} onChange={e => setSkeletonViz({ ...skeletonViz, enabled: e })} />
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <Checkbox label="Joints" checked={skeletonViz.drawJoints} onChange={e => setSkeletonViz({ ...skeletonViz, drawJoints: e })} />
-                            <Checkbox label="Bones" checked={skeletonViz.drawBones} onChange={e => setSkeletonViz({ ...skeletonViz, drawBones: e })} />
-                            <Checkbox label="Axes" checked={skeletonViz.drawAxes} onChange={e => setSkeletonViz({ ...skeletonViz, drawAxes: e })} />
-                        </div>
-
-                        <NumberInput
-                            label="Joint Radius"
-                            value={skeletonViz.jointRadius}
-                            onChange={v => setSkeletonViz({ ...skeletonViz, jointRadius: Math.max(2, Math.min(50, v)) })}
-                            step={1}
-                        />
-                        <NumberInput
-                            label="Root Scale"
-                            value={skeletonViz.rootScale}
-                            onChange={v => setSkeletonViz({ ...skeletonViz, rootScale: Math.max(1, Math.min(4, v)) })}
-                            step={0.05}
-                        />
+                        <SkeletonDisplayOptions />
                     </>
                 )}
             </div>

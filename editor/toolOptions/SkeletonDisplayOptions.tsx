@@ -1,66 +1,88 @@
+
 import React from 'react';
-import type { SkeletonVizSettings } from '@/editor/state/EditorContext';
-import { ToolSection } from './ToolSection';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { Checkbox, NumberInput } from '@/editor/components/ui';
 
-export const SkeletonDisplayOptions: React.FC<{
-  value: SkeletonVizSettings;
-  onChange: (v: SkeletonVizSettings) => void;
-}> = ({ value, onChange }) => {
+/**
+ * Reusable Skeleton Display Widget.
+ * Uses Engine API directly to observe and mutate state,
+ * allowing it to be registered into any panel.
+ */
+export const SkeletonDisplayOptions: React.FC = () => {
+  const api = useEngineAPI();
+  
+  // In a real implementation, we might want a hook that subscribes to changes.
+  // For now, we rely on the parent's re-render or engine notifications.
+  const options = api.queries.skeleton.getOptions();
+
+  const update = (patch: any) => {
+    api.commands.skeleton.setOptions(patch);
+  };
+
   return (
-    <ToolSection title="Skeleton Display" icon="Bone" className="pt-2 border-t border-white/5">
-      <div className="bg-black/20 p-2 rounded border border-white/5 space-y-2">
-        <label className="flex items-center justify-between cursor-pointer group">
-          <span className="text-xs text-text-primary group-hover:text-white">Enable</span>
-          <input type="checkbox" checked={value.enabled} onChange={(e) => onChange({ ...value, enabled: e.target.checked })} />
-        </label>
+    <div className="space-y-2">
+        <Checkbox 
+            label="Enable Overlay" 
+            checked={options.enabled} 
+            onChange={(v) => update({ enabled: v })} 
+        />
 
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex items-center gap-2 text-xs cursor-pointer group">
-            <input type="checkbox" checked={value.drawJoints} onChange={(e) => onChange({ ...value, drawJoints: e.target.checked })} />
-            <span className="text-text-primary group-hover:text-white">Joints</span>
-          </label>
-          <label className="flex items-center gap-2 text-xs cursor-pointer group">
-            <input type="checkbox" checked={value.drawBones} onChange={(e) => onChange({ ...value, drawBones: e.target.checked })} />
-            <span className="text-text-primary group-hover:text-white">Bones</span>
-          </label>
-          <label className="flex items-center gap-2 text-xs cursor-pointer group">
-            <input type="checkbox" checked={value.drawAxes} onChange={(e) => onChange({ ...value, drawAxes: e.target.checked })} />
-            <span className="text-text-primary group-hover:text-white">Axes</span>
-          </label>
+        <div className="grid grid-cols-3 gap-1">
+          <Checkbox 
+            label="Joints" 
+            checked={options.drawJoints} 
+            onChange={(v) => update({ drawJoints: v })} 
+            className="flex-col !items-start"
+          />
+          <Checkbox 
+            label="Bones" 
+            checked={options.drawBones} 
+            onChange={(v) => update({ drawBones: v })} 
+            className="flex-col !items-start"
+          />
+          <Checkbox 
+            label="Axes" 
+            checked={options.drawAxes} 
+            onChange={(v) => update({ drawAxes: v })} 
+            className="flex-col !items-start"
+          />
         </div>
 
         <div className="space-y-1">
-          <div className="flex justify-between text-[10px] text-text-secondary">
-            <span>Joint Radius</span>
-            <span>{Math.round(value.jointRadius)}px</span>
+          <div className="flex justify-between text-[10px] text-text-secondary uppercase">
+            <span>Joint Size</span>
+            <span className="font-mono text-white">{Math.round(options.jointRadius)}px</span>
           </div>
           <input
             type="range"
             min="2"
             max="50"
             step="1"
-            value={value.jointRadius}
-            onChange={(e) => onChange({ ...value, jointRadius: parseFloat(e.target.value) })}
+            value={options.jointRadius}
+            onChange={(e) => update({ jointRadius: parseFloat(e.target.value) })}
             className="w-full"
+            aria-label="Joint Radius"
+            title="Joint Radius"
           />
         </div>
 
         <div className="space-y-1">
-          <div className="flex justify-between text-[10px] text-text-secondary">
+          <div className="flex justify-between text-[10px] text-text-secondary uppercase">
             <span>Root Scale</span>
-            <span>{value.rootScale.toFixed(2)}x</span>
+            <span className="font-mono text-white">{options.rootScale.toFixed(2)}x</span>
           </div>
           <input
             type="range"
             min="1"
             max="4"
             step="0.05"
-            value={value.rootScale}
-            onChange={(e) => onChange({ ...value, rootScale: parseFloat(e.target.value) })}
+            value={options.rootScale}
+            onChange={(e) => update({ rootScale: parseFloat(e.target.value) })}
             className="w-full"
+            aria-label="Root Scale"
+            title="Root Scale"
           />
         </div>
-      </div>
-    </ToolSection>
+    </div>
   );
 };
