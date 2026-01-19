@@ -1,5 +1,5 @@
 
-import { Mat4Utils, RayUtils, Vec3Utils, AABBUtils } from '../math';
+import { Mat4Utils, RayUtils, Vec3Utils, AABBUtils, AABB } from '../math';
 import { COMPONENT_MASKS } from '../constants';
 import { assetManager } from '../AssetManager';
 import { StaticMeshAsset, MeshComponentMode, IEngine } from '@/types';
@@ -66,6 +66,37 @@ export class SelectionSystem {
         }
 
         this.engine.recalculateSoftSelection(true);
+    }
+
+    /**
+     * Calculates the AABB of the current sub-selection (vertices/edges/faces) in local space.
+     * Returns null if no sub-components are selected.
+     */
+    getSelectionAABB(): AABB | null {
+        const selectedVerts = this.getSelectionAsVertices();
+        if (selectedVerts.size === 0) return null;
+
+        // Find the asset to get vertex positions
+        if (this.selectedIndices.size === 0) return null;
+        const idx = Array.from(this.selectedIndices)[0];
+        const meshIntId = this.engine.ecs.store.meshType[idx];
+        const assetUuid = assetManager.meshIntToUuid.get(meshIntId);
+        if (!assetUuid) return null;
+        const asset = assetManager.getAsset(assetUuid) as StaticMeshAsset;
+        if (!asset || !asset.geometry?.vertices) return null;
+
+        const bounds = AABBUtils.create();
+        const verts = asset.geometry.vertices;
+        
+        selectedVerts.forEach(vIdx => {
+            AABBUtils.expandPoint(bounds, {
+                x: verts[vIdx * 3],
+                y: verts[vIdx * 3 + 1],
+                z: verts[vIdx * 3 + 2]
+            });
+        });
+        
+        return bounds;
     }
 
     selectEntityAt(mx: number, my: number, width: number, height: number): string | null {

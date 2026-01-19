@@ -13,6 +13,8 @@ export interface EngineCommands {
     clearSubSelection(): void;
     selectLoop(mode: MeshComponentMode): void;
     selectInRect(rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE'): void;
+    /** Focus camera on current selection center */
+    focus(): void;
   };
   simulation: {
     setMode(mode: SimulationMode): void;
@@ -84,6 +86,7 @@ export interface EngineQueries {
 
 export interface EngineEvents {
   'selection:changed': { ids: string[] };
+  'selection:focus': void;
   'simulation:modeChanged': { mode: SimulationMode };
   'scene:entityCreated': { id: string; name?: string };
   'scene:entityDeleted': { id: string };

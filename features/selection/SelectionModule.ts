@@ -56,6 +56,10 @@ export const SelectionModule: EngineModule = {
         
         ctx.engine.notifyUI();
       },
+      focus() {
+        // Emit focus event so viewports can respond
+        ctx.events.emit('selection:focus', undefined);
+      },
       clear() {
         ctx.engine.setSelected([]);
         if (ctx.engine.softSelectionEnabled) ctx.engine.recalculateSoftSelection(true);

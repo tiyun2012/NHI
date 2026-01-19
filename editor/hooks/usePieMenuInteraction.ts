@@ -12,6 +12,8 @@ export interface InteractionAPI {
         setSelected: (ids: string[]) => void;
         clear: () => void;
         selectInRect: (rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE') => void;
+        // Added focus method to the selection command interface for API consistency and to fix StaticMeshEditor type errors
+        focus: () => void;
     };
     mesh: {
         setComponentMode: (mode: MeshComponentMode) => void;

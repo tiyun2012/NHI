@@ -55,8 +55,23 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         setIsViewMenuOpen(false); 
     };
 
-    // Camera Focus Logic (Needed by Pie Menu Hook)
+    // Camera Focus Logic
     const handleFocus = useCallback(() => {
+        // 1. Try component selection focus first
+        const selectionBounds = engineInstance.selectionSystem.getSelectionAABB();
+        if (selectionBounds && selectedIds.length > 0) {
+            const centerLocal = AABBUtils.center(selectionBounds, { x: 0, y: 0, z: 0 });
+            const worldMat = sceneGraph.getWorldMatrix(selectedIds[0]);
+            if (worldMat) {
+                const center = Vec3Utils.transformMat4(centerLocal, worldMat, { x: 0, y: 0, z: 0 });
+                const size = AABBUtils.size(selectionBounds, { x: 0, y: 0, z: 0 });
+                const maxDim = Math.max(size.x, Math.max(size.y, size.z));
+                setCamera(prev => ({ ...prev, target: center, radius: Math.max(maxDim * 2.0, 1.0) }));
+                return;
+            }
+        }
+
+        // 2. Fallback to entity selection focus
         if (selectedIds.length > 0) {
             const bounds = AABBUtils.create();
             let valid = false;
@@ -87,6 +102,11 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         }
     }, [selectedIds, sceneGraph]);
 
+    // Listen for focus command via API
+    useEffect(() => {
+        return api.subscribe('selection:focus', handleFocus);
+    }, [api, handleFocus]);
+
     // Use Pie Menu Hook
     const { 
         pieMenuState, 
@@ -99,7 +119,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         onSelect,
         setTool,
         setMeshComponentMode,
-        handleFocus,
+        handleFocus: () => api.commands.selection.focus(),
         handleModeSelect
     });
     
@@ -205,12 +225,12 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
             if (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA') return;
             if (e.key === 'f' || e.key === 'F') {
                 e.preventDefault();
-                handleFocus();
+                api.commands.selection.focus();
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleFocus]);
+    }, [api]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         if (isBrushKeyHeld.current) return;
@@ -486,6 +506,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                     currentMode={meshComponentMode}
                     onSelectMode={(m) => { setMeshComponentMode(m); closePieMenu(); }}
                     onAction={handlePieAction}
+                    onSelect={() => {}}
                     onClose={closePieMenu}
                 />, 
                 document.body

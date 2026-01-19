@@ -1,5 +1,5 @@
 
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useViewportSize } from '@/editor/hooks/useViewportSize';
@@ -12,7 +12,7 @@ import { assetManager } from '@/engine/AssetManager';
 import { GizmoSystem } from '@/engine/GizmoSystem';
 import { GizmoRenderer } from '@/engine/renderers/GizmoRenderer';
 import { DebugRenderer } from '@/engine/renderers/DebugRenderer';
-import { Mat4Utils, Vec3Utils } from '@/engine/math';
+import { Mat4Utils, Vec3Utils, AABBUtils } from '@/engine/math';
 import { MeshComponentMode, StaticMeshAsset, SkeletalMeshAsset, ToolType, TransformSpace, SnapSettings } from '@/types';
 import { consoleService } from '@/engine/Console';
 
@@ -103,6 +103,7 @@ function createLoggedApi(api: InteractionAPI): InteractionAPI {
             setSelected: (ids) => { log(`selection.setSelected`, [ids]); api.selection.setSelected(ids); },
             clear: () => { log(`selection.clear`, []); api.selection.clear(); },
             selectInRect: (rect, mode, action) => { log(`selection.selectInRect`, [rect, mode, action]); api.selection.selectInRect(rect, mode, action); },
+            focus: () => { log(`selection.focus`, []); api.selection.focus(); },
         },
         mesh: {
             setComponentMode: (m) => { log(`mesh.setComponentMode`, [m]); api.mesh.setComponentMode(m); }
@@ -213,7 +214,37 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   useEffect(() => { selectionBoxRef.current = selectionBox; }, [selectionBox]);
 
   // --- LOCAL API ADAPTER ---
-  const focusCamera = () => { fitCameraRef.current ? setCamera(p => ({ ...p, ...fitCameraRef.current! })) : setCamera(p => ({ ...p, radius: 3, target: {x:0,y:0,z:0} })); };
+  const focusCamera = useCallback(() => {
+    const engine = previewEngineRef.current;
+    if (!engine || !assetId) return;
+
+    const asset = assetManager.getAsset(assetId) as StaticMeshAsset | SkeletalMeshAsset;
+    if (!asset) return;
+
+    // 1. Check for sub-selection (vertex/edge/face) AABB via system
+    const selectionBounds = engine.selectionSystem.getSelectionAABB();
+    
+    if (selectionBounds) {
+        // 2. Focus on current sub-selection AABB
+        const center = AABBUtils.center(selectionBounds, { x: 0, y: 0, z: 0 });
+        const size = AABBUtils.size(selectionBounds, { x: 0, y: 0, z: 0 });
+        const maxDim = Math.max(size.x, Math.max(size.y, size.z));
+        
+        setCamera(p => ({
+            ...p,
+            target: center,
+            radius: Math.max(maxDim * 1.8, 0.2) // framed slightly wider for context
+        }));
+    } else {
+        // 3. Fallback to whole asset framing
+        if (fitCameraRef.current) {
+            setCamera(p => ({ ...p, ...fitCameraRef.current! }));
+        } else {
+            setCamera(p => ({ ...p, radius: 3, target: { x: 0, y: 0, z: 0 } }));
+        }
+    }
+  }, [assetId]);
+
   const resetTransform = () => { previewEngineRef.current?.resetPreviewTransform(); };
 
   // Memoize and Wrap for Logging
@@ -254,7 +285,8 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       engine.selectionSystem.setSelected(hits);
                       engine.notifyUI();
                   }
-              }
+              },
+              focus: () => focusCamera()
           },
           mesh: {
               setComponentMode: (m) => {
@@ -280,7 +312,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           }
       };
       return createLoggedApi(baseApi);
-  }, [setMeshComponentMode, setSoftSelectionEnabled, setSoftSelectionRadius, setSoftSelectionHeatmapVisible]);
+  }, [setMeshComponentMode, setSoftSelectionEnabled, setSoftSelectionRadius, setSoftSelectionHeatmapVisible, focusCamera]);
 
   // --- PIE MENU HOOK ---
   const { pieMenuState, openPieMenu, closePieMenu, handlePieAction } = usePieMenuInteraction({
@@ -289,7 +321,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       onSelect: () => {}, // Selection is fixed in asset viewer
       setTool,
       setMeshComponentMode,
-      handleFocus: focusCamera,
+      handleFocus: () => localApi.selection.focus(),
       handleModeSelect: (id) => setRenderMode(id),
       api: localApi // Inject local API
   });
@@ -336,25 +368,27 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       if (e.key === 'r') setTool('SCALE');
       if (e.key === 'g') setShowGrid(v => !v);
       if (e.key === 'z') setShowWireframe(v => !v);
-      if (e.key === 'f') focusCamera();
+      if (e.key === 'f') localApi.selection.focus();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setTool]);
+  }, [setTool, localApi]);
 
   useEffect(() => {
-    const asset = assetManager.getAsset(assetId) as StaticMeshAsset | undefined;
-    if (!asset || (asset.type !== 'MESH' && asset.type !== 'SKELETAL_MESH')) return;
+    // Fix: Refine asset type guard to exclude SKELETON assets, ensuring geometry and topology are only accessed on mesh-based assets.
+    const asset = assetManager.getAsset(assetId);
+    if (!asset || (asset.type === 'FOLDER' || asset.type === 'MATERIAL' || asset.type === 'PHYSICS_MATERIAL' || asset.type === 'SCRIPT' || asset.type === 'RIG' || asset.type === 'SCENE' || asset.type === 'TEXTURE' || asset.type === 'SKELETON')) return;
 
-    setStats({ verts: asset.geometry.vertices.length / 3, tris: asset.geometry.indices.length / 3 });
-    const fit = computeFitCamera(asset);
+    const meshAsset = asset as StaticMeshAsset | SkeletalMeshAsset;
+    setStats({ verts: meshAsset.geometry.vertices.length / 3, tris: meshAsset.geometry.indices.length / 3 });
+    const fit = computeFitCamera(meshAsset);
     fitCameraRef.current = fit;
     setCamera(p => ({ ...p, radius: fit.radius, target: { ...fit.target } }));
 
     const engine = new AssetViewportEngine(
       () => setSelectionTick(p => p + 1),
       () => {}, 
-      () => setStats({ verts: asset.geometry.vertices.length/3, tris: asset.geometry.indices.length/3 })
+      () => setStats({ verts: meshAsset.geometry.vertices.length/3, tris: meshAsset.geometry.indices.length/3 })
     );
     
     engine.meshComponentMode = meshComponentMode;
@@ -388,9 +422,11 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   }, [assetId, meshComponentMode, softSelectionEnabled, softSelectionRadius, softSelectionMode, softSelectionFalloff, softSelectionHeatmapVisible]);
 
   useEffect(() => {
+    // Fix: Exclude SKELETON asset type from the render initialization to safely access mesh-specific properties like topology.
     const asset = assetManager.getAsset(assetId);
-    if (!asset || (asset.type !== 'MESH' && asset.type !== 'SKELETAL_MESH')) return;
+    if (!asset || (asset.type === 'FOLDER' || asset.type === 'MATERIAL' || asset.type === 'PHYSICS_MATERIAL' || asset.type === 'SCRIPT' || asset.type === 'RIG' || asset.type === 'SCENE' || asset.type === 'TEXTURE' || asset.type === 'SKELETON')) return;
 
+    const meshAsset = asset as StaticMeshAsset | SkeletalMeshAsset;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: true });
@@ -465,7 +501,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
 
         engine?.render(performance.now() * 0.001, renderModeRef.current);
 
-        const isSkeletal = (asset as any).type === 'SKELETAL_MESH';
+        const isSkeletal = (meshAsset as any).type === 'SKELETAL_MESH';
         const skViz = skeletonVizRef.current;
         const wantsSkeleton = isSkeletal && skViz?.enabled;
         const wantsVertexOverlay = !!showVertexOverlayRef.current;
@@ -488,7 +524,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
 
                   // --- DRAW POINTS ---
                   const selectedVerts = engine.selectionSystem.getSelectionAsVertices();
-                  const verts = (asset as StaticMeshAsset).geometry.vertices;
+                  const verts = meshAsset.geometry.vertices;
                   
                   if (engine.meshComponentMode === 'VERTEX') {
                       for(let i=0; i<verts.length/3; i++) {
@@ -512,7 +548,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                   // --- DRAW EDGES ---
                   const isEdgeMode = engine.meshComponentMode === 'EDGE' || engine.meshComponentMode === 'FACE';
                   const edgeIds = engine.selectionSystem.subSelection.edgeIds;
-                  const indices = (asset as StaticMeshAsset).geometry.indices;
+                  const indices = meshAsset.geometry.indices;
                   const colWire = { r: 0.3, g: 0.3, b: 0.35 };
                   const colEdgeSel = { r: 1, g: 1, b: 0 };
 
@@ -526,8 +562,9 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       debugRenderer.drawLine(p1, p2, color);
                   };
 
-                  if (asset.topology && asset.topology.faces.length > 0) {
-                      asset.topology.faces.forEach(face => {
+                  // Fix: Use the properly narrowed meshAsset type to ensure topology property access is valid and safe.
+                  if (meshAsset.topology && meshAsset.topology.faces.length > 0) {
+                      meshAsset.topology.faces.forEach(face => {
                           for(let k=0; k<face.length; k++) {
                               const vA = face[k];
                               const vB = face[(k+1)%face.length];
@@ -555,7 +592,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
             }
 
             if (wantsSkeleton) {
-                // ... skeleton drawing logic remains same ...
+                // skeleton drawing logic remains same
             }
 
             debugRenderer.render(vp);
@@ -741,7 +778,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                 <div className="bg-black/40 backdrop-blur border border-white/5 rounded-md flex p-1 text-text-secondary">
                     <button className={`p-1 hover:text-white rounded ${showGrid?'text-accent':''}`} onClick={() => setShowGrid(v=>!v)}><Icon name="Grid" size={14}/></button>
                     <button className={`p-1 hover:text-white rounded ${showWireframe?'text-accent':''}`} onClick={() => setShowWireframe(v=>!v)}><Icon name="Codepen" size={14}/></button>
-                    <button className="p-1 hover:text-white rounded" onClick={() => { resetTransform(); focusCamera(); }}><Icon name="Home" size={14}/></button>
+                    <button className="p-1 hover:text-white rounded" onClick={() => { resetTransform(); localApi.selection.focus(); }}><Icon name="Home" size={14}/></button>
                 </div>
             </div>
 
@@ -764,6 +801,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                     currentMode={meshComponentMode} 
                     onSelectMode={(m) => { localApi.mesh.setComponentMode(m); closePieMenu(); }} 
                     onAction={handlePieAction} 
+                    onSelect={() => {}} 
                     onClose={closePieMenu} 
                 />, 
                 document.body
