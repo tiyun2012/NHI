@@ -148,6 +148,7 @@ const StatsContent = () => {
 };
 
 const StatusBarInfo: React.FC = () => {
+    const api = useEngineAPI();
     const { meshComponentMode, selectedIds, simulationMode } = useContext(EditorContext) as EditorContextType;
     const [statusText, setStatusText] = useState('Ready');
     const [hintText, setHintText] = useState('');
@@ -164,8 +165,7 @@ const StatusBarInfo: React.FC = () => {
                 if (selectedIds.length > 0) {
                     const count = selectedIds.length;
                     const lastId = selectedIds[count - 1];
-                    const idx = engineInstance.ecs.idToIndex.get(lastId);
-                    const name = idx !== undefined ? engineInstance.ecs.store.names[idx] : 'Object';
+                    const name = api.queries.scene.getEntityName(lastId) || 'Object';
                     setStatusText(count === 1 ? name : `${count} Objects`);
                     setHintText('Alt+LMB Orbit • MMB Pan • Wheel Zoom');
                 } else {
@@ -173,19 +173,19 @@ const StatusBarInfo: React.FC = () => {
                     setHintText('Select an object to edit');
                 }
             } else {
-                const sub = engineInstance.selectionSystem.subSelection;
+                const stats = api.queries.selection.getSubSelectionStats();
+
                 if (meshComponentMode === 'VERTEX') {
-                    const count = sub.vertexIds.size;
+                    const count = stats.vertexCount;
                     if (count === 0) {
                         setStatusText('Vertex Mode');
                         setHintText('Click to select vertices');
                     } else {
-                        const last = Array.from(sub.vertexIds).pop();
-                        setStatusText(count === 1 ? `Vertex ID: ${last}` : `${count} Vertices`);
+                        setStatusText(count === 1 ? `Vertex ID: ${stats.lastVertex}` : `${count} Vertices`);
                         setHintText(count === 1 ? 'Alt+Click 2nd Vertex for Loop' : 'Drag to Move Selection');
                     }
                 } else if (meshComponentMode === 'EDGE') {
-                    const count = sub.edgeIds.size;
+                    const count = stats.edgeCount;
                     if (count === 0) {
                         setStatusText('Edge Mode');
                         setHintText('Click to select edges');
@@ -194,13 +194,12 @@ const StatusBarInfo: React.FC = () => {
                         setHintText('Alt+Click for Loop');
                     }
                 } else if (meshComponentMode === 'FACE') {
-                    const count = sub.faceIds.size;
+                    const count = stats.faceCount;
                     if (count === 0) {
                         setStatusText('Face Mode');
                         setHintText('Click to select faces');
                     } else {
-                        const last = Array.from(sub.faceIds).pop();
-                        setStatusText(count === 1 ? `Face ID: ${last}` : `${count} Faces`);
+                        setStatusText(count === 1 ? `Face ID: ${stats.lastFace}` : `${count} Faces`);
                         setHintText('Alt+Click edge for Strip');
                     }
                 }
@@ -208,9 +207,16 @@ const StatusBarInfo: React.FC = () => {
         };
 
         update();
-        const unsub = engineInstance.subscribe(update);
-        return unsub;
-    }, [meshComponentMode, selectedIds, simulationMode]);
+
+        const offs = [
+            api.subscribe('selection:changed', update),
+            api.subscribe('selection:subChanged', update),
+            api.subscribe('scene:entityRenamed', update),
+            api.subscribe('simulation:modeChanged', update),
+        ];
+
+        return () => offs.forEach(off => off());
+    }, [api, meshComponentMode, selectedIds, simulationMode]);
 
     return (
         <div className="flex items-center gap-3">
@@ -390,12 +396,12 @@ const App: React.FC = () => {
 
     useEffect(() => {
         const update = () => {
-            setEntities(engineInstance.ecs.getAllProxies(engineInstance.sceneGraph));
-            setSimulationMode(engineInstance.simulationMode); // Sync engine mode to UI
+            setEntities(api.queries.scene.getEntities());
+            setSimulationMode(api.queries.simulation.getMode()); // Sync engine mode to UI
         };
         update();
         return engineInstance.subscribe(update);
-    }, []);
+    }, [api]);
 
     // Listen for selection changes from the engine (e.g. from marquee tool) and update React state
     useEffect(() => {
@@ -414,7 +420,6 @@ const App: React.FC = () => {
 
     // Wrappers for smart selection and mode switching
     const handleSetSelectedIds = useCallback((ids: string[]) => {
-        setSelectedIds(ids);
         // Use the engine delegate so selection side-effects (e.g. skeleton debug tool) stay in sync.
         api.commands.selection.setSelected(ids);
         

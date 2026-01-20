@@ -191,6 +191,14 @@ export class Engine {
         } catch (e) {
             console.warn('[engine] moduleManager.dispose failed', e);
         }
+
+        // Dispose feature-module + API runtime (if attached)
+        try {
+            const disposeRuntime = (this as any).__ti3d_disposeEngineRuntime__ as undefined | (() => void);
+            disposeRuntime?.();
+        } catch (e) {
+            console.warn('[engine] disposeEngineRuntime failed', e);
+        }
     }
 
     get meshSystem() { return this.renderer.meshSystem; }

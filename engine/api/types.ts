@@ -1,6 +1,6 @@
 // Add missing React import for ComponentType namespace
 import React from 'react';
-import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset } from '@/types';
+import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset, Entity, PerformanceMetrics } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';
 
@@ -75,7 +75,25 @@ export interface EngineCommands {
 export interface EngineQueries {
   selection: {
     getSelectedIds(): string[];
+    /** Prefer getSubSelectionStats in UI; getSubSelection returns engine internals. */
     getSubSelection(): { vertexIds: Set<number>; edgeIds: Set<string>; faceIds: Set<number> };
+    getSubSelectionStats(): {
+      vertexCount: number;
+      edgeCount: number;
+      faceCount: number;
+      lastVertex: number | null;
+      lastFace: number | null;
+    };
+  };
+  simulation: {
+    getMode(): SimulationMode;
+    isPlaying(): boolean;
+    getMetrics(): PerformanceMetrics;
+  };
+  scene: {
+    getEntities(): Entity[];
+    getEntityName(id: string): string | null;
+    getEntityCount(): number;
   };
   registry: {
     getModules(): EngineModule[];

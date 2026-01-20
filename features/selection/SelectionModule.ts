@@ -2,6 +2,63 @@ import type { EngineModule } from '@/engine/core/moduleHost';
 import { registerCommands, registerQueries } from '@/engine/core/registry';
 import { SELECTION_CHANGED } from './selection.events';
 
+function getSelectedIdsFromEngine(engine: any): string[] {
+  const indices: Set<number> = engine.selectionSystem.selectedIndices;
+  const ids: string[] = [];
+  indices.forEach((idx) => {
+    const id = engine.ecs.store.ids[idx];
+    if (id) ids.push(id);
+  });
+  // Selection order is typically insertion, but we normalize for stable equality checks.
+  ids.sort();
+  return ids;
+}
+
+function keyFromNumberSet(set: Set<number>): string {
+  const size = set.size;
+  if (size === 0) return '0:';
+  if (size <= 24) {
+    const arr = Array.from(set);
+    arr.sort((a, b) => a - b);
+    return `${size}:${arr.join(',')}`;
+  }
+  // Cheap-ish hash for large sets
+  let min = Infinity, max = -Infinity, sum = 0;
+  for (const v of set) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+    sum += v;
+  }
+  return `${size}:${min}:${max}:${sum}`;
+}
+
+function keyFromStringSet(set: Set<string>): string {
+  const size = set.size;
+  if (size === 0) return '0:';
+  if (size <= 24) {
+    const arr = Array.from(set);
+    arr.sort();
+    return `${size}:${arr.join(',')}`;
+  }
+  // Approximate key for large sets
+  let min = '', max = '';
+  let i = 0;
+  for (const v of set) {
+    if (i === 0) {
+      min = v;
+      max = v;
+    } else {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    i++;
+  }
+  return `${size}:${min}:${max}`;
+}
+
+
+const offByEngine = new WeakMap<object, () => void>();
+
 export const SelectionModule: EngineModule = {
   id: 'selection',
 
@@ -32,32 +89,30 @@ export const SelectionModule: EngineModule = {
       },
       selectInRect(rect, mode, action) {
         if (mode === 'OBJECT') {
-            const hits = ctx.engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
-            
-            let finalIds = hits;
-            if (action === 'ADD') {
-                // For OBJECT mode, ADD behaves as union
-                const current = Array.from(ctx.engine.selectionSystem.selectedIndices)
-                    .map(idx => ctx.engine.ecs.store.ids[idx]);
-                finalIds = Array.from(new Set([...current, ...hits]));
-            }
-            
-            ctx.engine.setSelected(finalIds);
-            ctx.events.emit(SELECTION_CHANGED, { ids: finalIds });
-        } 
-        else if (mode === 'VERTEX') {
-            // For components, we rely on modifySubSelection to handle the set logic
-            const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
-            if (indices.length > 0) {
-                ctx.engine.selectionSystem.modifySubSelection('VERTEX', indices, action === 'ADD' ? 'ADD' : 'SET');
-                ctx.events.emit('selection:subChanged', undefined);
-            } else if (action === 'SET') {
-                ctx.engine.selectionSystem.modifySubSelection('VERTEX', [], 'SET');
-                ctx.events.emit('selection:subChanged', undefined);
-            }
+          const hits = ctx.engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
+
+          let finalIds = hits;
+          if (action === 'ADD') {
+            // For OBJECT mode, ADD behaves as union
+            const current = Array.from(ctx.engine.selectionSystem.selectedIndices).map((idx) => ctx.engine.ecs.store.ids[idx]);
+            finalIds = Array.from(new Set([...current, ...hits]));
+          }
+
+          ctx.engine.setSelected(finalIds);
+          ctx.events.emit(SELECTION_CHANGED, { ids: finalIds });
+        } else if (mode === 'VERTEX') {
+          // For components, we rely on modifySubSelection to handle the set logic
+          const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
+          if (indices.length > 0) {
+            ctx.engine.selectionSystem.modifySubSelection('VERTEX', indices, action === 'ADD' ? 'ADD' : 'SET');
+            ctx.events.emit('selection:subChanged', undefined);
+          } else if (action === 'SET') {
+            ctx.engine.selectionSystem.modifySubSelection('VERTEX', [], 'SET');
+            ctx.events.emit('selection:subChanged', undefined);
+          }
         }
         // TODO: Implement EDGE/FACE marquee support in SelectionSystem
-        
+
         ctx.engine.notifyUI();
       },
       focus() {
@@ -74,17 +129,76 @@ export const SelectionModule: EngineModule = {
 
     registerQueries(ctx, 'selection', {
       getSelectedIds() {
-        const indices = ctx.engine.selectionSystem.selectedIndices;
-        const ids: string[] = [];
-        indices.forEach((idx: number) => {
-          const id = ctx.engine.ecs.store.ids[idx];
-          if (id) ids.push(id);
-        });
-        return ids;
+        return getSelectedIdsFromEngine(ctx.engine);
       },
+
+      /**
+       * Prefer this in UI instead of reaching into engine.selectionSystem.subSelection.
+       */
+      getSubSelectionStats() {
+        const sub = ctx.engine.selectionSystem.subSelection;
+        // "Last" is not meaningful for Sets, but it is useful for a status bar.
+        const lastVertex = sub.vertexIds.size ? Array.from(sub.vertexIds.values()).pop() ?? null : null;
+        const lastFace = sub.faceIds.size ? Array.from(sub.faceIds.values()).pop() ?? null : null;
+
+        return {
+          vertexCount: sub.vertexIds.size,
+          edgeCount: sub.edgeIds.size,
+          faceCount: sub.faceIds.size,
+          lastVertex,
+          lastFace,
+        };
+      },
+
+      /**
+       * Deprecated: exposes engine internals. Kept for backward compatibility.
+       */
       getSubSelection() {
         return ctx.engine.selectionSystem.subSelection;
-      }
+      },
     });
+
+
+    // --- Hybrid migration safety ---
+    // While legacy code still calls engine.setSelected / selectionSystem.* directly,
+    // keep UI state in sync by mirroring engine state into the typed events.
+    let lastSelectionKey = '';
+    let lastSubKey = '';
+
+    const sync = () => {
+      const ids = getSelectedIdsFromEngine(ctx.engine);
+      const key = ids.join('|');
+      if (key !== lastSelectionKey) {
+        lastSelectionKey = key;
+        ctx.events.emit(SELECTION_CHANGED, { ids });
+      }
+
+      const sub = ctx.engine.selectionSystem.subSelection;
+      const subKey = [
+        keyFromNumberSet(sub.vertexIds),
+        keyFromStringSet(sub.edgeIds),
+        keyFromNumberSet(sub.faceIds),
+      ].join('||');
+
+      if (subKey !== lastSubKey) {
+        lastSubKey = subKey;
+        ctx.events.emit('selection:subChanged', undefined);
+      }
+    };
+
+    sync();
+
+    // Ensure we don't double-subscribe for the same engine (e.g. HMR / multiple providers).
+    const prev = offByEngine.get(ctx.engine as any);
+    prev?.();
+
+    const off = ctx.engine.subscribe(sync);
+    offByEngine.set(ctx.engine as any, off);
+  },
+
+  dispose(ctx) {
+    const off = offByEngine.get(ctx.engine as any);
+    off?.();
+    offByEngine.delete(ctx.engine as any);
   },
 };

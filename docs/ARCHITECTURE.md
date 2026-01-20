@@ -31,6 +31,7 @@ The `ModuleManager` (`engine/ModuleManager.ts`) is the extension backbone. It is
 ### Editor/UI Layer
 The React UI interacts with the engine through two primary channels:
 1. **`EngineProvider` & `EngineAPI`**: Creates a stable boundary. The UI should use `useEngineAPI()` to dispatch commands (`commands.selection.setSelected(...)`) rather than mutating the engine directly.
+   - **Long-term guarantee**: `engine/api/engineRuntime.ts` caches the `EngineContext` + module initialization **per Engine instance**, preventing double-registration during React remount/HMR. The feature runtime is disposed via `Engine.dispose()`.
 2. **`EditorContext`**: Centralizes editor-specific state (Selection, Tool Modes, UI Config, Snap Settings). This ensures UI components (Inspector, Viewport, Toolbar) remain synchronized.
 
 ---
