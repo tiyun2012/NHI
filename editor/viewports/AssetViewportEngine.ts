@@ -1,5 +1,5 @@
 
-import { IEngine, MeshComponentMode, Vector3, SoftSelectionFalloff, StaticMeshAsset, SkeletalMeshAsset } from '@/types';
+import { IEngine, MeshComponentMode, Vector3, SoftSelectionFalloff, StaticMeshAsset, SkeletalMeshAsset, ComponentType, UIConfiguration } from '@/types';
 import { SoAEntitySystem } from '@/engine/ecs/EntitySystem';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { SelectionSystem } from '@/engine/systems/SelectionSystem';
@@ -11,6 +11,10 @@ import { consoleService } from '@/engine/Console';
 import { TypedEventBus } from '@/engine/core/eventBus';
 import { EngineEvents } from '@/engine/api/types';
 import { updateMeshBounds } from '@/engine/geometry/meshGeometry';
+import { DebugRenderer } from '@/engine/renderers/DebugRenderer';
+import { SkeletonTool } from '@/engine/tools/SkeletonTool';
+import { DEFAULT_UI_CONFIG } from '@/engine/config/defaults';
+import { Vec3Utils } from '@/engine/math';
 
 type GizmoRendererFacade = {
     renderGizmos: (
@@ -28,10 +32,15 @@ export class AssetViewportEngine implements IEngine {
     sceneGraph = new SceneGraph();
     selectionSystem: SelectionSystem;
     deformationSystem: DeformationSystem;
-    events = new TypedEventBus<EngineEvents>(); // Added EventBus
+    events = new TypedEventBus<EngineEvents>(); 
     
     // Core Rendering System
     meshSystem = new MeshRenderSystem();
+    debugRenderer = new DebugRenderer();
+    skeletonTool: SkeletonTool;
+
+    // Configuration (synced from editor context)
+    uiConfig: UIConfiguration = DEFAULT_UI_CONFIG;
 
     // Camera / viewport
     currentViewProj: Float32Array | null = null;
@@ -54,6 +63,10 @@ export class AssetViewportEngine implements IEngine {
 
     // Local entity holding the preview mesh
     private previewEntityId: string | null = null;
+    
+    // Skeleton Mapping for Visualization
+    skeletonMap: Map<string, string[]> = new Map();
+    skeletonEntityAssetMap: Map<string, string> = new Map();
 
     constructor(
         private onNotifyUI?: () => void,
@@ -63,6 +76,18 @@ export class AssetViewportEngine implements IEngine {
         this.sceneGraph.setContext(this.ecs);
         this.selectionSystem = new SelectionSystem(this);
         this.deformationSystem = new DeformationSystem();
+
+        this.skeletonTool = new SkeletonTool({
+            getDebugRenderer: () => this.debugRenderer,
+            getWorldMatrix: (id) => this.sceneGraph.getWorldMatrix(id),
+            getSkeletonEntityAssetMap: () => this.skeletonEntityAssetMap,
+            getSkeletonMap: () => this.skeletonMap,
+            getEntityIndex: (id) => this.ecs.idToIndex.get(id),
+            isEntityActive: (idx) => !!this.ecs.store.isActive[idx],
+            getMeshIntId: (idx) => this.ecs.store.meshType[idx],
+            getAssetById: (id) => assetManager.getAsset(id) as any,
+            meshIntToUuid: (id) => assetManager.meshIntToUuid.get(id),
+        });
     }
 
     // --- Soft Selection Properties (Forwarding to DeformationSystem) ---
@@ -103,6 +128,7 @@ export class AssetViewportEngine implements IEngine {
 
     initGL(gl: WebGL2RenderingContext) {
         this.meshSystem.init(gl);
+        this.debugRenderer.init(gl);
         
         this.deformationSystem.init(
             this.ecs,
@@ -141,6 +167,16 @@ export class AssetViewportEngine implements IEngine {
     setPreviewMesh(meshAssetId: string): string {
         const meshIntId = assetManager.getMeshID(meshAssetId);
 
+        // 1. Cleanup old skeleton if exists
+        if (this.previewEntityId) {
+             const oldBones = this.skeletonMap.get(this.previewEntityId);
+             if (oldBones) {
+                 oldBones.forEach(bId => this.ecs.deleteEntity(bId, this.sceneGraph));
+             }
+             this.skeletonMap.delete(this.previewEntityId);
+        }
+
+        // 2. Create or Reuse Main Entity
         if (!this.previewEntityId) {
             this.previewEntityId = this.ecs.createEntity('PreviewMesh');
             this.entityId = this.previewEntityId;
@@ -155,14 +191,45 @@ export class AssetViewportEngine implements IEngine {
             this.ecs.store.meshType[idx] = meshIntId;
         }
 
+        // 3. Handle Skeletal Mesh (Spawn Bones)
+        const asset = assetManager.getAsset(meshAssetId);
+        if (asset && asset.type === 'SKELETAL_MESH') {
+             const skelAsset = asset as SkeletalMeshAsset;
+             const bones = skelAsset.skeleton.bones;
+             const boneEntityIds: string[] = new Array(bones.length);
+             
+             bones.forEach((bone, bIdx) => {
+                 const boneId = this.ecs.createEntity(bone.name);
+                 boneEntityIds[bIdx] = boneId;
+                 this.sceneGraph.registerEntity(boneId);
+                 
+                 const bEcsIdx = this.ecs.idToIndex.get(boneId)!;
+                 this.ecs.addComponent(boneId, ComponentType.VIRTUAL_PIVOT);
+                 this.ecs.store.vpLength[bEcsIdx] = 0.2; 
+
+                 if (bone.parentIndex !== -1) {
+                     const pId = boneEntityIds[bone.parentIndex];
+                     if (pId) this.sceneGraph.attach(boneId, pId);
+                 } else {
+                     this.sceneGraph.attach(boneId, this.previewEntityId!);
+                 }
+             });
+             this.skeletonMap.set(this.previewEntityId, boneEntityIds);
+             
+             // Activate the skeleton tool for this asset
+             if (skelAsset.skeletonAssetId) {
+                 this.skeletonTool.setActive(skelAsset.skeletonAssetId, this.previewEntityId);
+             } else {
+                 // Or treat the mesh asset as the source of truth if it has embedded skeleton
+                 this.skeletonTool.setActive(meshAssetId, this.previewEntityId);
+             }
+        }
+
         this.entityId = this.previewEntityId;
         this.selectionSystem.setSelected([this.previewEntityId]);
         
-        if (this.meshSystem.gl) {
-            const asset = assetManager.getAsset(meshAssetId);
-            if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
-                this.meshSystem.registerMesh(meshIntId, asset.geometry);
-            }
+        if (this.meshSystem.gl && asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+            this.meshSystem.registerMesh(meshIntId, (asset as StaticMeshAsset).geometry);
         }
 
         return this.previewEntityId;
@@ -192,8 +259,6 @@ export class AssetViewportEngine implements IEngine {
 
     notifyUI() { 
         this.onNotifyUI?.();
-        // Emit events for API compatibility
-        // We trigger both selection events here as this engine combines selection/update loops
         this.events.emit('selection:subChanged', undefined);
         this.events.emit('selection:changed', { ids: Array.from(this.selectionSystem.selectedIndices).map(idx => this.ecs.store.ids[idx]) });
     }
@@ -233,6 +298,99 @@ export class AssetViewportEngine implements IEngine {
         }
     }
 
+    // Helper to render mesh overlays (selection, vertices) matching MeshModule logic
+    private renderMeshOverlays() {
+        const selectedIndices = this.selectionSystem.selectedIndices;
+        if (selectedIndices.size === 0) return;
+
+        const isObjectMode = this.meshComponentMode === 'OBJECT';
+        const isVertexMode = this.meshComponentMode === 'VERTEX';
+
+        // Only draw overlays if enabled
+        if (isObjectMode && !this.uiConfig.selectionEdgeHighlight) return;
+
+        const hexToRgb = (hex: string) => {
+            const r = parseInt(hex.substring(1, 3), 16) / 255;
+            const g = parseInt(hex.substring(3, 5), 16) / 255;
+            const b = parseInt(hex.substring(5, 7), 16) / 255;
+            return { r, g, b };
+        };
+
+        const colSel = { r: 1.0, g: 1.0, b: 0.0 };
+        const colObjectSelection = hexToRgb(this.uiConfig.selectionEdgeColor || '#4f80f8');
+        const vertexConfigColor = hexToRgb(this.uiConfig.vertexColor || '#a855f7');
+        const wireframeDim = { r: 0.3, g: 0.3, b: 0.35 };
+
+        selectedIndices.forEach((idx: number) => {
+            const entityId = this.ecs.store.ids[idx];
+            const meshIntId = this.ecs.store.meshType[idx];
+            const assetUuid = assetManager.meshIntToUuid.get(meshIntId);
+            if (!assetUuid) return;
+            const asset = assetManager.getAsset(assetUuid) as any;
+            if (!asset || !asset.topology) return;
+
+            const worldMat = this.sceneGraph.getWorldMatrix(entityId);
+            if (!worldMat) return;
+            const verts = asset.geometry.vertices;
+            const colors = asset.geometry.colors;
+            const topo = asset.topology;
+
+            // Draw Edge Highlights / Wireframe
+            if (this.debugRenderer.lineCount < this.debugRenderer.maxLines) {
+                topo.faces.forEach((face: number[]) => {
+                    for(let k=0; k<face.length; k++) {
+                        const vA = face[k], vB = face[(k+1)%face.length];
+                        const pA = Vec3Utils.transformMat4({ x:verts[vA*3], y:verts[vA*3+1], z:verts[vA*3+2] }, worldMat, {x:0,y:0,z:0});
+                        const pB = Vec3Utils.transformMat4({ x:verts[vB*3], y:verts[vB*3+1], z:verts[vB*3+2] }, worldMat, {x:0,y:0,z:0});
+                        
+                        let color = isObjectMode ? colObjectSelection : (isVertexMode ? wireframeDim : wireframeDim);
+                        
+                        if (!isObjectMode && !isVertexMode) {
+                            const edgeKey = [vA, vB].sort((a,b)=>a-b).join('-');
+                            if (this.selectionSystem.subSelection.edgeIds.has(edgeKey)) color = colSel; 
+                        }
+                        this.debugRenderer.drawLine(pA, pB, color);
+                    }
+                });
+            }
+
+            // Draw Vertex Overlay
+            if (isVertexMode || this.uiConfig.showVertexOverlay) {
+                const baseSize = Math.max(3.0, this.uiConfig.vertexSize * 3.0);
+                const m0=worldMat[0], m1=worldMat[1], m2=worldMat[2], m12=worldMat[12];
+                const m4=worldMat[4], m5=worldMat[5], m6=worldMat[6], m13=worldMat[13];
+                const m8=worldMat[8], m9=worldMat[9], m10=worldMat[10], m14=worldMat[14];
+
+                for(let i=0; i<verts.length/3; i++) {
+                    const x = verts[i*3], y = verts[i*3+1], z = verts[i*3+2];
+                    const wx = m0*x + m4*y + m8*z + m12;
+                    const wy = m1*x + m5*y + m9*z + m13;
+                    const wz = m2*x + m6*y + m10*z + m14;
+
+                    const isSelected = this.selectionSystem.subSelection.vertexIds.has(i);
+                    const isHovered = this.selectionSystem.hoveredVertex?.entityId === entityId && this.selectionSystem.hoveredVertex?.index === i;
+                    
+                    let size = baseSize;
+                    let border = 0.0;
+                    let r = vertexConfigColor.r, g = vertexConfigColor.g, b = vertexConfigColor.b; 
+                    
+                    if (colors) {
+                        const cr = colors[i*3], cg = colors[i*3+1], cb = colors[i*3+2];
+                        if (!(cr > 0.9 && cg > 0.9 && cb > 0.9)) { r *= cr; g *= cg; b *= cb; }
+                    }
+
+                    if (isSelected || isHovered) {
+                        r = colSel.r; g = colSel.g; b = colSel.b;
+                        size = baseSize * 1.5; 
+                        border = 0.0; 
+                    }
+
+                    this.debugRenderer.drawPointRaw(wx, wy, wz, r, g, b, size, border);
+                }
+            }
+        });
+    }
+
     render(time: number, renderMode: number) {
         if (!this.currentViewProj) return;
         
@@ -260,5 +418,16 @@ export class AssetViewportEngine implements IEngine {
             'OPAQUE',
             softSelData
         );
+        
+        // Render Overlays (Debug Renderer)
+        this.debugRenderer.begin();
+        
+        // 1. Skeleton Tool
+        this.skeletonTool.update();
+
+        // 2. Vertex/Edge Overlays (Using local uiConfig)
+        this.renderMeshOverlays();
+        
+        this.debugRenderer.render(this.currentViewProj);
     }
 }

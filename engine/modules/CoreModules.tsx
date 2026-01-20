@@ -120,6 +120,7 @@ export const MeshModule: EngineModule = {
         const isObjectMode = engine.meshComponentMode === 'OBJECT';
         const isVertexMode = engine.meshComponentMode === 'VERTEX';
         
+        // Show selection highlight if in object mode + config enabled
         if (isObjectMode && !engine.uiConfig.selectionEdgeHighlight) return;
 
         const hexToRgb = (hex: string) => {
@@ -166,7 +167,7 @@ export const MeshModule: EngineModule = {
                 });
             }
 
-            if (isVertexMode) {
+            if (isVertexMode || engine.uiConfig.showVertexOverlay) {
                 const baseSize = Math.max(3.0, engine.uiConfig.vertexSize * 3.0);
                 const m0=worldMat[0], m1=worldMat[1], m2=worldMat[2], m12=worldMat[12];
                 const m4=worldMat[4], m5=worldMat[5], m6=worldMat[6], m13=worldMat[13];

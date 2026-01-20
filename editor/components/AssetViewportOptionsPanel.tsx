@@ -43,8 +43,6 @@ export interface AssetViewportOptionsPanelProps {
   // Viewport overlay UI
   uiConfig: UIConfiguration;
   setUiConfig: (cfg: UIConfiguration) => void;
-  showVertexOverlay: boolean;
-  setShowVertexOverlay: (v: boolean) => void;
 
   // Soft selection (viewport-local)
   softSelectionEnabled: boolean;
@@ -73,8 +71,6 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
   setSkeletonViz,
   uiConfig,
   setUiConfig,
-  showVertexOverlay,
-  setShowVertexOverlay,
   softSelectionEnabled,
   setSoftSelectionEnabled,
   softSelectionRadius,
@@ -169,7 +165,6 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
 
         {/* Transform options (shared block) */}
         {transformSpace && setTransformSpace && (
-          /* Fixed: TransformToolOptions does not accept props and uses EditorContext */
           <TransformToolOptions />
         )}
 
@@ -184,7 +179,7 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
           <div className="bg-black/20 p-2 rounded border border-white/5 space-y-2">
             <label className="flex items-center justify-between cursor-pointer group">
               <span className="text-xs text-text-primary group-hover:text-white">Show Vertex Overlay</span>
-              <input type="checkbox" checked={showVertexOverlay} onChange={(e) => setShowVertexOverlay(e.target.checked)} className="accent-accent" />
+              <input type="checkbox" checked={uiConfig.showVertexOverlay} onChange={(e) => updateUi('showVertexOverlay', e.target.checked)} className="accent-accent" />
             </label>
             <label className="flex items-center justify-between cursor-pointer group">
               <span className="text-xs text-text-primary group-hover:text-white">Selection Edge Highlight</span>
@@ -254,7 +249,6 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
 
         {/* Skeleton debug (shared block) */}
         {skeletonViz && setSkeletonViz && (
-          /* Fixed: SkeletonDisplayOptions does not accept props and uses Engine API */
           <SkeletonDisplayOptions />
         )}
       </div>

@@ -1,3 +1,4 @@
+
 import type { UIConfiguration, GridConfiguration, SnapSettings } from '@/types';
 
 export const DEFAULT_UI_CONFIG: UIConfiguration = {
@@ -8,6 +9,7 @@ export const DEFAULT_UI_CONFIG: UIConfiguration = {
     resizeHandleLength: 1.0,
     selectionEdgeHighlight: true,
     selectionEdgeColor: '#4f80f8', // Unity Blue
+    showVertexOverlay: true, // Default ON
     vertexSize: 1.0,
     vertexColor: '#a855f7', // Purple
 };

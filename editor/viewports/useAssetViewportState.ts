@@ -1,3 +1,4 @@
+
 import { useMemo, useState } from 'react';
 import { MeshComponentMode, SoftSelectionFalloff, ToolType, UIConfiguration } from '@/types';
 import type { SoftSelectionMode } from '@/engine/engine';
@@ -25,12 +26,9 @@ export interface AssetViewportState {
   // Viewport overlay UI
   uiConfig: UIConfiguration;
   setUiConfig: (cfg: UIConfiguration) => void;
-
-  showVertexOverlay: boolean;
-  setShowVertexOverlay: (v: boolean) => void;
 }
 
-export type AssetViewportStateInit = Partial<Omit<AssetViewportState, 'setTool' | 'setMeshComponentMode' | 'setSoftSelectionEnabled' | 'setSoftSelectionRadius' | 'setSoftSelectionMode' | 'setSoftSelectionFalloff' | 'setSoftSelectionHeatmapVisible' | 'setUiConfig' | 'setShowVertexOverlay'>>;
+export type AssetViewportStateInit = Partial<Omit<AssetViewportState, 'setTool' | 'setMeshComponentMode' | 'setSoftSelectionEnabled' | 'setSoftSelectionRadius' | 'setSoftSelectionMode' | 'setSoftSelectionFalloff' | 'setSoftSelectionHeatmapVisible' | 'setUiConfig'>>;
 
 export function useAssetViewportState(init: AssetViewportStateInit = {}): AssetViewportState {
   const [tool, setTool] = useState<ToolType>(init.tool ?? 'SELECT');
@@ -43,7 +41,6 @@ export function useAssetViewportState(init: AssetViewportStateInit = {}): AssetV
   const [softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible] = useState<boolean>(init.softSelectionHeatmapVisible ?? false);
 
   const [uiConfig, setUiConfig] = useState<UIConfiguration>(init.uiConfig ?? DEFAULT_UI_CONFIG);
-  const [showVertexOverlay, setShowVertexOverlay] = useState<boolean>(init.showVertexOverlay ?? true);
 
   return useMemo(
     () => ({
@@ -63,8 +60,6 @@ export function useAssetViewportState(init: AssetViewportStateInit = {}): AssetV
       setSoftSelectionHeatmapVisible,
       uiConfig,
       setUiConfig,
-      showVertexOverlay,
-      setShowVertexOverlay,
     }),
     [
       tool,
@@ -75,7 +70,6 @@ export function useAssetViewportState(init: AssetViewportStateInit = {}): AssetV
       softSelectionFalloff,
       softSelectionHeatmapVisible,
       uiConfig,
-      showVertexOverlay,
     ]
   );
 }

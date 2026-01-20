@@ -36,6 +36,15 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
     const globalApi = useEngineAPI();
     const api = overrideApi || globalApi;
     
+    // Access global UI config, or default if missing
+    const uiConfig = ctx?.uiConfig || { 
+        vertexColor: '#a855f7', 
+        selectionEdgeColor: '#4f80f8', 
+        vertexSize: 1.0, 
+        showVertexOverlay: true,
+        selectionEdgeHighlight: true 
+    } as any;
+    
     const selectedAssetIds = ctx?.selectedAssetIds || [];
     const selectedEntityIds = ctx?.selectedIds || [];
     
@@ -105,12 +114,14 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
 
     // --- Camera Focus ---
     const focusOnSelection = useCallback(() => {
+        const { cssWidth, cssHeight } = viewportSize;
+
         if (!uvBuffer || !editingAsset) {
-            setTransform({ x: viewportSize.cssWidth / 2 - 150, y: viewportSize.cssHeight / 2 - 150, k: 300 });
+            setTransform({ x: cssWidth / 2 - 150, y: cssHeight / 2 - 150, k: 300 });
             return;
         }
 
-        const indices = Array.from(selectedIndices);
+        const indices = Array.from(selectedIndices) as number[];
         
         if (indices.length > 0) {
             let minU: number = Infinity;
@@ -132,21 +143,21 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
             const maxSize = Math.max(sizeU, sizeV, 0.01);
 
             const padding = 1.4;
-            const newK = Math.min(viewportSize.cssWidth, viewportSize.cssHeight) / (maxSize * padding);
+            const newK = Math.min(cssWidth, cssHeight) / (maxSize * padding);
             
             setTransform({
-                x: viewportSize.cssWidth / 2 - centerU * newK,
-                y: viewportSize.cssHeight / 2 - (1 - centerV) * newK,
+                x: cssWidth / 2 - centerU * newK,
+                y: cssHeight / 2 - (1 - centerV) * newK,
                 k: newK
             });
         } else {
             const margin = 50;
-            const availableW = viewportSize.cssWidth - margin * 2;
-            const availableH = viewportSize.cssHeight - margin * 2;
+            const availableW = cssWidth - margin * 2;
+            const availableH = cssHeight - margin * 2;
             const newK = Math.min(availableW, availableH);
             setTransform({
-                x: (viewportSize.cssWidth - newK) / 2,
-                y: (viewportSize.cssHeight - newK) / 2,
+                x: (cssWidth - newK) / 2,
+                y: (cssHeight - newK) / 2,
                 k: newK
             });
         }
@@ -249,7 +260,7 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
 
                 // Highlight Selected Faces
                 if (selectedFaces.has(fIdx)) {
-                    ctx2d.fillStyle = 'rgba(79, 128, 248, 0.25)';
+                    ctx2d.fillStyle = 'rgba(79, 128, 248, 0.25)'; // Keep hardcoded semi-transparent selection for faces
                     ctx2d.beginPath();
                     ctx2d.moveTo(toX(uvBuffer[face[0]*2]), toY(uvBuffer[face[0]*2+1]));
                     for(let i=1; i<face.length; i++) ctx2d.lineTo(toX(uvBuffer[face[i]*2]), toY(uvBuffer[face[i]*2+1]));
@@ -269,7 +280,7 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
                     const isEdgeSelected = selectedEdges.has(edgeKey);
                     if (isEdgeSelected) {
                         ctx2d.save();
-                        ctx2d.strokeStyle = '#fbbf24';
+                        ctx2d.strokeStyle = '#fbbf24'; // Edge selection stays distinct (gold) or could be selectionColor
                         ctx2d.lineWidth = 2.0;
                         ctx2d.beginPath();
                         ctx2d.moveTo(toX(uvBuffer[v1*2]), toY(uvBuffer[v1*2+1]));
@@ -285,23 +296,28 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
             });
         }
 
-        // 3. Vertices
+        // 3. Vertices (Synced Visuals)
+        // Scale vertex size based on shared config
+        const vSize = Math.max(3, (uiConfig.vertexSize || 1.0) * 3);
+        const selSize = vSize * 1.5;
+        const primSize = vSize * 2.0;
+
         for(let i=0; i<uvBuffer.length/2; i++) {
             const isSel = selectedIndices.has(i);
             const isPrimary = i === selectedVertex;
             
             if (isPrimary) {
                 ctx2d.fillStyle = '#ffffff';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - 4, toY(uvBuffer[i*2+1]) - 4, 8, 8);
+                ctx2d.fillRect(toX(uvBuffer[i*2]) - primSize/2, toY(uvBuffer[i*2+1]) - primSize/2, primSize, primSize);
             } else if (isSel) {
-                ctx2d.fillStyle = '#fbbf24';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - 3, toY(uvBuffer[i*2+1]) - 3, 6, 6);
-            } else if (selectionMode === 'VERTEX') {
-                ctx2d.fillStyle = '#333';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - 1.5, toY(uvBuffer[i*2+1]) - 1.5, 3, 3);
+                ctx2d.fillStyle = uiConfig.selectionEdgeColor || '#4f80f8';
+                ctx2d.fillRect(toX(uvBuffer[i*2]) - selSize/2, toY(uvBuffer[i*2+1]) - selSize/2, selSize, selSize);
+            } else if (selectionMode === 'VERTEX' || uiConfig.showVertexOverlay) {
+                ctx2d.fillStyle = uiConfig.vertexColor || '#a855f7';
+                ctx2d.fillRect(toX(uvBuffer[i*2]) - vSize/2, toY(uvBuffer[i*2+1]) - vSize/2, vSize, vSize);
             }
         }
-    }, [editingAsset, uvBuffer, transform, selectedIndices, selectedEdges, selectedFaces, selectionMode, selectedVertex, viewportSize]);
+    }, [editingAsset, uvBuffer, transform, selectedIndices, selectedEdges, selectedFaces, selectionMode, selectedVertex, viewportSize, uiConfig]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         if (!containerRef.current) return;
@@ -380,7 +396,7 @@ export const UVEditor: React.FC<UVEditorProps> = ({ api: overrideApi, assetId: o
         if (isDraggingVertex && selectedIndices.size > 0 && uvBuffer) {
             const du = e.movementX / transform.k; const dv = -e.movementY / transform.k;
             const newBuf = new Float32Array(uvBuffer);
-            selectedIndices.forEach(idx => { newBuf[idx*2] += du; newBuf[idx*2+1] += dv; });
+            selectedIndices.forEach((idx: number) => { newBuf[idx*2] += du; newBuf[idx*2+1] += dv; });
             setUvBuffer(newBuf);
         }
     };

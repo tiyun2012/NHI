@@ -55,6 +55,7 @@ export interface UIConfiguration {
     // New Visual Preferences
     selectionEdgeHighlight: boolean;
     selectionEdgeColor: string;
+    showVertexOverlay: boolean; // Moved here for global sharing
     vertexSize: number;
     vertexColor: string;
 }

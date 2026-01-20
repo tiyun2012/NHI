@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import type { EngineAPI } from './types';
 import { engineInstance, Engine } from '@/engine/engine';
@@ -14,22 +15,28 @@ const EngineAPIContext = createContext<EngineAPI | null>(null);
  * - The feature-module + API layer is initialized ONCE per Engine instance.
  * - The EngineContext (events/registries) stays stable across React remounts / HMR.
  */
-export const EngineProvider: React.FC<React.PropsWithChildren<{ engine?: Engine }>> = ({ children, engine }) => {
+export const EngineProvider: React.FC<React.PropsWithChildren<{ engine?: Engine; api?: EngineAPI }>> = ({ children, engine, api: providedApi }) => {
   const inst = engine ?? engineInstance;
 
   // Acquire a stable API for this engine instance.
-  const api = useMemo(() => acquireEngineAPI(inst), [inst]);
+  // If 'api' prop is provided, use it directly (e.g. for AssetViewportEngine adapters).
+  const api = useMemo(() => {
+      if (providedApi) return providedApi;
+      return acquireEngineAPI(inst);
+  }, [inst, providedApi]);
 
   // Release the reference on unmount.
   // If the engine is explicitly provided, treat it as owned and dispose its runtime.
   useEffect(() => {
+    if (providedApi) return; 
+
     return () => {
       releaseEngineAPI(inst);
       if (engine) {
         disposeEngineRuntime(inst);
       }
     };
-  }, [inst, engine]);
+  }, [inst, engine, providedApi]);
 
   return <EngineAPIContext.Provider value={api}>{children}</EngineAPIContext.Provider>;
 };
