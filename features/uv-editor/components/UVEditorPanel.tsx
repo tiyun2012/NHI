@@ -60,7 +60,8 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     const [selectedEdges, setSelectedEdges] = useState<Set<string>>(new Set());
     const [selectedFaces, setSelectedFaces] = useState<Set<number>>(new Set());
     
-    const [selectionMode, setSelectionMode] = useState<MeshComponentMode>('UV'); 
+    // Initialize with context mode if available, otherwise default to UV
+    const [selectionMode, setSelectionMode] = useState<MeshComponentMode>(ctx?.meshComponentMode || 'UV'); 
     const [selectedVertex, setSelectedVertex] = useState<number>(-1); 
     
     const [navState, setNavState] = useState<NavState>({ mode: 'NONE', startX: 0, startY: 0, startTransform: { ...transform } });
@@ -70,6 +71,13 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     const [editingAsset, setEditingAsset] = useState<StaticMeshAsset | SkeletalMeshAsset | null>(null);
     const [uvBuffer, setUvBuffer] = useState<Float32Array | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+
+    // --- Sync Mode with Context ---
+    useEffect(() => {
+        if (ctx?.meshComponentMode && ctx.meshComponentMode !== selectionMode) {
+            setSelectionMode(ctx.meshComponentMode);
+        }
+    }, [ctx?.meshComponentMode]);
 
     // --- Selection Sync ---
     const syncFromEngine = useCallback(() => {
@@ -265,8 +273,9 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
         if (ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor');
         
         // Update global selection context to enable Inspector features for UVs
-        if (selectionMode === 'UV' && ctx) ctx.setSelectionType('UV');
-        else if (selectionMode === 'VERTEX' && ctx) ctx.setSelectionType('VERTEX');
+        // Only if not already in that mode to avoid loops
+        if (selectionMode === 'UV' && ctx && ctx.selectionType !== 'UV') ctx.setSelectionType('UV');
+        else if (selectionMode === 'VERTEX' && ctx && ctx.selectionType !== 'VERTEX') ctx.setSelectionType('VERTEX');
 
         if (pieMenuState && e.button !== 2) { closePieMenu(); return; }
 
@@ -422,7 +431,11 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     };
 
     return (
-        <div className="w-full h-full flex flex-col bg-[#1a1a1a] select-none" onMouseDown={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}>
+        <div 
+            className="w-full h-full flex flex-col bg-[#1a1a1a] select-none" 
+            onMouseDown={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}
+            onContextMenu={(e) => e.preventDefault()}
+        >
             <div className="h-8 bg-panel-header border-b border-white/5 flex items-center px-2 justify-between shrink-0">
                 <div className="flex items-center gap-4 text-[10px] text-text-secondary uppercase font-bold tracking-widest">
                     <div className="flex items-center gap-1"><Icon name="LayoutGrid" size={12} className="text-accent" /> UV Editor</div>
@@ -459,7 +472,6 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
                 onMouseMove={handleMouseMove} 
                 onMouseUp={handleMouseUp} 
                 onMouseLeave={handleMouseUp}
-                onContextMenu={e => e.preventDefault()}
             >
                 <canvas ref={canvasRef} className="block" />
                 
