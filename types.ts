@@ -40,7 +40,7 @@ export interface IEngine {
     setSelected(ids: string[]): void;
     
     // Soft Selection
-    recalculateSoftSelection(trigger?: boolean): void;
+    recalculateSoftSelection(trigger?: boolean, mode?: MeshComponentMode): void;
     clearDeformation(): void;
     
     // UI Notification

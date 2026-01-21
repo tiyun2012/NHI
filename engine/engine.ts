@@ -221,8 +221,8 @@ export class Engine {
     get softSelectionHeatmapVisible() { return this.deformationSystem.heatmapVisible; }
     set softSelectionHeatmapVisible(v: boolean) { this.deformationSystem.heatmapVisible = v; }
 
-    recalculateSoftSelection(trigger: boolean = true) {
-        this.deformationSystem.recalculateSoftSelection(trigger, this.meshComponentMode);
+    recalculateSoftSelection(trigger: boolean = true, mode?: MeshComponentMode) {
+        this.deformationSystem.recalculateSoftSelection(trigger, mode || this.meshComponentMode);
     }
 
     startVertexDrag(entityId: string) {

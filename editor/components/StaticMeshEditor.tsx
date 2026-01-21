@@ -267,7 +267,14 @@ const StaticMeshViewport: React.FC<{
       if (e.button === 2 && !e.altKey) {
           if (engine) {
               const hit = engine.selectionSystem.selectEntityAt(mx, my, rect.width, rect.height);
-              if (hit) api.commands.selection.setSelected([hit]);
+              if (hit) {
+                  // Only re-select if not already selected.
+                  // This prevents clearing active sub-selection when right-clicking the active mesh.
+                  const hitIdx = engine.ecs.idToIndex.get(hit);
+                  if (hitIdx === undefined || !engine.selectionSystem.selectedIndices.has(hitIdx)) {
+                      api.commands.selection.setSelected([hit]);
+                  }
+              }
           }
           openPieMenu(e.clientX, e.clientY);
           return;
@@ -471,7 +478,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       engine.softSelectionHeatmapVisible = softSelectionHeatmapVisible;
       engine.uiConfig = effectiveUiConfig;
       engine.skeletonTool.setOptions(skeletonVizLocal);
-      engine.recalculateSoftSelection(true);
+      engine.recalculateSoftSelection(true, meshComponentMode);
       
       gizmoSystem.setTool(tool);
   }, [

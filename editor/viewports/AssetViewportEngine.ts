@@ -106,8 +106,8 @@ export class AssetViewportEngine implements IEngine {
     get softSelectionHeatmapVisible() { return this.deformationSystem.heatmapVisible; }
     set softSelectionHeatmapVisible(v: boolean) { this.deformationSystem.heatmapVisible = v; }
 
-    recalculateSoftSelection(trigger: boolean = true) {
-        this.deformationSystem.recalculateSoftSelection(trigger, this.meshComponentMode);
+    recalculateSoftSelection(trigger: boolean = true, mode?: MeshComponentMode) {
+        this.deformationSystem.recalculateSoftSelection(trigger, mode || this.meshComponentMode);
     }
 
     startVertexDrag(entityId: string) {
@@ -295,6 +295,9 @@ export class AssetViewportEngine implements IEngine {
     selectLoop(mode: MeshComponentMode) {
         this.selectionSystem.selectLoop(mode);
         this.notifyUI();
+        // Force a frame update (tick) to ensure the newly selected loop is drawn immediately
+        // This is crucial for local viewports that might be event-driven or paused
+        this.render(performance.now() * 0.001, 0);
     }
 
     extrudeFaces() { consoleService.warn("Local Extrude: Not implemented"); }

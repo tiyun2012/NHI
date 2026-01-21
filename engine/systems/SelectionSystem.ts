@@ -485,7 +485,8 @@ export class SelectionSystem {
             }
         }
         
-        this.engine.recalculateSoftSelection();
+        // Pass explicit mode to ensure correct weight map is updated even if engine mode is stale
+        this.engine.recalculateSoftSelection(true, mode);
         this.engine.notifyUI();
     }
 
