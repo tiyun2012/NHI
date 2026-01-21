@@ -232,6 +232,9 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (document.activeElement?.tagName === 'INPUT') return;
+            // Only respond to keyboard shortcuts if UV Editor is focused
+            if (ctx?.focusedWidgetId !== 'uveditor') return;
+
             if (e.key === 'f' || e.key === 'F') { e.preventDefault(); focusOnSelection(); }
             if (e.key === '1') localApi.mesh.setComponentMode('VERTEX');
             if (e.key === '2') localApi.mesh.setComponentMode('EDGE');
@@ -240,7 +243,7 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [focusOnSelection, localApi]);
+    }, [focusOnSelection, localApi, ctx?.focusedWidgetId]);
 
     // --- Rendering ---
     useEffect(() => {

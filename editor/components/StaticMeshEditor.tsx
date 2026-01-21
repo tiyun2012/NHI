@@ -92,7 +92,8 @@ const StaticMeshViewport: React.FC<{
         tool, setTool,
         softSelectionEnabled, setSoftSelectionEnabled,
         softSelectionRadius, setSoftSelectionRadius,
-        softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible 
+        softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible,
+        setFocusedWidgetId
     } = ctx;
 
     // Interaction State
@@ -107,8 +108,6 @@ const StaticMeshViewport: React.FC<{
     const [selectionBox, setSelectionBox] = useState<SelectionBoxState | null>(null);
     const selectionBoxRef = useRef<SelectionBoxState | null>(null);
     useEffect(() => { selectionBoxRef.current = selectionBox; }, [selectionBox]);
-
-    const [stats, setStats] = useState({ verts: 0, tris: 0 });
 
     // Focus Camera Logic
     const focusCamera = useCallback(() => {
@@ -138,6 +137,22 @@ const StaticMeshViewport: React.FC<{
     useEffect(() => {
         return api.subscribe('selection:focus', focusCamera);
     }, [api, focusCamera]);
+
+    // Keyboard Shortcuts (F to Focus) - Only active when this viewport is focused
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (document.activeElement?.tagName === 'INPUT') return;
+            // IMPORTANT: Only handle key if this viewport is focused
+            if (ctx.focusedWidgetId !== 'asset_viewport') return;
+
+            if (e.key === 'f' || e.key === 'F') {
+                e.preventDefault();
+                api.commands.selection.focus();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [api, ctx.focusedWidgetId]);
 
     // Pie Menu
     const { pieMenuState, openPieMenu, closePieMenu, handlePieAction } = usePieMenuInteraction({
@@ -237,18 +252,11 @@ const StaticMeshViewport: React.FC<{
         return () => { cancelAnimationFrame(raf); gl.deleteProgram(lineProgram); gl.deleteVertexArray(gridVao); gl.deleteBuffer(gridVbo); };
     }, [engine, gizmoSystem, showGrid, renderMode, viewportSize]); // Re-init if engine changes (unlikely) or viewport resizes
 
-    // Stats
-    useEffect(() => {
-        // Simple polling for stats to avoid React thrashing
-        const i = setInterval(() => {
-            // Need a way to get stats from engine. For now hardcode or expose getter
-            // This is just UI feedback
-        }, 500);
-        return () => clearInterval(i);
-    }, []);
-
     // Mouse Handlers (Same logic as before, just using local refs)
     const handleMouseDown = (e: React.MouseEvent) => {
+      // Set focus to this viewport
+      if (setFocusedWidgetId) setFocusedWidgetId('asset_viewport');
+
       if (isBrushKeyHeld.current && meshComponentMode !== 'OBJECT') return;
       if (pieMenuState && e.button !== 2) closePieMenu();
       if (pieMenuState) return;
@@ -339,7 +347,7 @@ const StaticMeshViewport: React.FC<{
               const eyeY = ds.startCamera.radius * Math.cos(ds.startCamera.phi);
               const eyeZ = ds.startCamera.radius * Math.sin(ds.startCamera.phi) * Math.sin(ds.startCamera.theta);
               const forward = Vec3Utils.normalize({x: -eyeX, y: -eyeY, z: -eyeZ}, {x:0,y:0,z:0});
-              const right = Vec3Utils.normalize(Vec3Utils.cross(forward, {x:0,y:1,z:0}, {x:0,y:0,z:0}), {x:0,y:0,z:0});
+              const right = Vec3Utils.normalize(Vec3Utils.cross(forward, {x:0,y:1,z:0}, {x:0,y:0,z:0}));
               const camUp = Vec3Utils.normalize(Vec3Utils.cross(right, forward, {x:0,y:0,z:0}), {x:0,y:0,z:0});
               const moveX = Vec3Utils.scale(right, -dx * panSpeed, {x:0,y:0,z:0});
               const moveY = Vec3Utils.scale(camUp, dy * panSpeed, {x:0,y:0,z:0});
@@ -372,7 +380,15 @@ const StaticMeshViewport: React.FC<{
     };
 
     return (
-        <div ref={containerRef} className={`w-full h-full relative overflow-hidden bg-[#151515] ${dragState ? 'cursor-grabbing' : 'cursor-default'}`} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={(e) => setCamera(p => ({...p, radius: Math.max(0.25, p.radius + e.deltaY * 0.01)}))} onContextMenu={e => e.preventDefault()}>
+        <div ref={containerRef} 
+             className={`w-full h-full relative overflow-hidden bg-[#151515] ${dragState ? 'cursor-grabbing' : 'cursor-default'}`} 
+             onMouseDown={handleMouseDown} 
+             onMouseMove={handleMouseMove} 
+             onMouseUp={handleMouseUp} 
+             onMouseEnter={() => { if(setFocusedWidgetId) setFocusedWidgetId('asset_viewport'); }}
+             onWheel={(e) => setCamera(p => ({...p, radius: Math.max(0.25, p.radius + e.deltaY * 0.01)}))} 
+             onContextMenu={e => e.preventDefault()}
+        >
             <canvas ref={canvasRef} className="w-full h-full block relative z-10" />
             
             {selectionBox && selectionBox.isSelecting && <div className="absolute z-20 pointer-events-none border-2 border-[#4f80f8] bg-[#4f80f8]/20" style={{ left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX - selectionBox.startX), height: Math.abs(selectionBox.currentY - selectionBox.startY) }} />}
@@ -395,6 +411,8 @@ const StaticMeshViewport: React.FC<{
 
 export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => {
   const editorCtx = useContext(EditorContext);
+  // Track local focus state for this editor window (Viewport vs UV Editor)
+  const [localFocusedWidget, setLocalFocusedWidget] = useState<string>('asset_viewport');
 
   const [transformSpaceLocal, setTransformSpaceLocal] = useState<TransformSpace>('World');
   const [snapSettingsLocal, setSnapSettingsLocal] = useState<SnapSettings>(DEFAULT_SNAP_CONFIG);
@@ -610,6 +628,11 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
               getMode: () => 'STOPPED',
               isPlaying: () => false,
               getMetrics: () => ({ fps: 60, frameTime: 16, drawCalls: 1, triangleCount: 0, entityCount: 1 })
+          },
+          ui: {
+              getFocusedWidget() {
+                  return localFocusedWidget;
+              }
           }
       } as any;
 
@@ -621,7 +644,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
               return () => engine.events.off(event, cb);
           }
       };
-  }, [localInteractionApi, assetId, engine]);
+  }, [localInteractionApi, assetId, engine, localFocusedWidget]);
 
   const localEditorContext = useMemo<EditorContextType>(() => {
       const base = editorCtx || {} as any;
@@ -648,12 +671,19 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible,
           
           uiConfig: effectiveUiConfig, setUiConfig: setEffectiveUiConfig,
+          
+          // Focus Management
+          focusedWidgetId: localFocusedWidget, 
+          setFocusedWidgetId: (id) => {
+              setLocalFocusedWidget(id || 'asset_viewport');
+              if (base.setFocusedWidgetId) base.setFocusedWidgetId(id);
+          }
       };
   }, [
       editorCtx, localInteractionApi, assetId, 
       tool, meshComponentMode, transformSpaceLocal, snapSettingsLocal, skeletonVizLocal,
       softSelectionEnabled, softSelectionRadius, softSelectionMode, softSelectionFalloff, softSelectionHeatmapVisible,
-      effectiveUiConfig
+      effectiveUiConfig, localFocusedWidget
   ]);
 
   const defaultLayout: LayoutData = {
