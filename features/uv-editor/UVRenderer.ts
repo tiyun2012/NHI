@@ -51,7 +51,8 @@ export class UVRenderer {
 
                 // Highlight Selected Faces
                 if (selection.faces.has(fIdx)) {
-                    ctx2d.fillStyle = 'rgba(79, 128, 248, 0.25)'; 
+                    // Use a transparent green to match UV theme (#55f785)
+                    ctx2d.fillStyle = 'rgba(85, 247, 133, 0.25)'; 
                     ctx2d.beginPath();
                     ctx2d.moveTo(toX(uvBuffer[face[0]*2]), toY(uvBuffer[face[0]*2+1]));
                     for(let i=1; i<face.length; i++) ctx2d.lineTo(toX(uvBuffer[face[i]*2]), toY(uvBuffer[face[i]*2+1]));

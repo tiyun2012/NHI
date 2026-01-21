@@ -434,6 +434,7 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
         <div 
             className="w-full h-full flex flex-col bg-[#1a1a1a] select-none" 
             onMouseDown={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}
+            onMouseEnter={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}
             onContextMenu={(e) => e.preventDefault()}
         >
             <div className="h-8 bg-panel-header border-b border-white/5 flex items-center px-2 justify-between shrink-0">

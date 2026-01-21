@@ -32,6 +32,7 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ children }) => {
         <div 
             className="w-full h-full bg-black relative"
             onMouseDownCapture={() => setFocusedWidgetId('VIEWPORT')}
+            onMouseEnter={() => setFocusedWidgetId('VIEWPORT')}
         >
             <DockLayout
                 defaultLayout={defaultLayout}

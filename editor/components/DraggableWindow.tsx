@@ -15,13 +15,14 @@ interface DraggableWindowProps {
     initialPosition?: { x: number, y: number };
     className?: string;
     onMouseDown?: () => void;
+    onMouseEnter?: () => void;
 }
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export const DraggableWindow = ({ 
     id, title, onClose, onNest, children, width = 300, height = "auto", icon, 
-    initialPosition, className = "", onMouseDown
+    initialPosition, className = "", onMouseDown, onMouseEnter
 }: DraggableWindowProps) => {
     
     const { uiConfig } = useContext(EditorContext)!;
@@ -204,6 +205,7 @@ export const DraggableWindow = ({
             className={`glass-panel flex flex-col overflow-visible ${className}`}
             style={windowStyle}
             onMouseDown={onMouseDown}
+            onMouseEnter={onMouseEnter}
         >
             <style>{hoverStyle}</style>
 

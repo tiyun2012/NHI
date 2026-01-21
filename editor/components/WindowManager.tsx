@@ -121,6 +121,7 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
                         onNest={() => nestWindow(win.id)}
                         className="pointer-events-auto" // Re-enable pointer events for the window itself
                         onMouseDown={() => bringToFront(win.id)}
+                        onMouseEnter={() => setFocusedWidgetId(win.id)}
                         children={win.content}
                     />
                 </div>
