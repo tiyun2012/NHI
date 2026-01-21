@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Icon } from './Icon';
 import { MeshComponentMode, ToolType, UIConfiguration } from '@/types';
@@ -62,6 +63,7 @@ export const AssetViewportInspector: React.FC<Props> = ({
     { label: 'Vertex', value: 'VERTEX', icon: 'Dot' },
     { label: 'Edge', value: 'EDGE', icon: 'Minus' },
     { label: 'Face', value: 'FACE', icon: 'Square' },
+    { label: 'UV', value: 'UV', icon: 'LayoutGrid' },
   ];
 
   return (

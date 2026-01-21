@@ -7,6 +7,8 @@ import { EditorContext, EditorContextType, DEFAULT_UI_CONFIG, UIConfiguration, G
 import { assetManager } from '@/engine/AssetManager';
 import { consoleService } from '@/engine/Console';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { eventBus } from '@/engine/EventBus';
+import { uiRegistry } from '@/editor/registries/UIRegistry';
 
 // Components
 import { Toolbar } from '@/editor/components/Toolbar';
@@ -19,7 +21,6 @@ import { Icon } from '@/editor/components/Icon';
 import { PreferencesModal } from '@/editor/components/PreferencesModal';
 import { WindowManager, WindowManagerContext, WindowManagerContextType } from '@/editor/components/WindowManager';
 import { GeometrySpreadsheet } from '@/editor/components/GeometrySpreadsheet';
-import { UVEditor } from '@/editor/components/UVEditor';
 import { Timeline } from '@/editor/components/Timeline';
 import { SkinningEditor } from '@/editor/components/SkinningEditor';
 import { ToolOptionsPanel } from '@/editor/components/ToolOptionsPanel'; 
@@ -149,7 +150,7 @@ const StatsContent = () => {
 
 const StatusBarInfo: React.FC = () => {
     const api = useEngineAPI();
-    const { meshComponentMode, selectedIds, simulationMode } = useContext(EditorContext) as EditorContextType;
+    const { meshComponentMode, selectedIds, simulationMode, focusedWidgetId } = useContext(EditorContext) as EditorContextType;
     const [statusText, setStatusText] = useState('Ready');
     const [hintText, setHintText] = useState('');
 
@@ -226,6 +227,11 @@ const StatusBarInfo: React.FC = () => {
                 <span className="text-indigo-400 animate-pulse font-bold flex items-center gap-2"><Icon name="Activity" size={12} /> SIMULATING</span>
             ) : (
                 <>
+                    {focusedWidgetId && (
+                        <span className="text-accent font-mono text-[9px] bg-accent/10 px-1.5 py-0.5 rounded mr-1">
+                            {focusedWidgetId}
+                        </span>
+                    )}
                     <span className="font-semibold text-white/90 text-[11px]">{statusText}</span>
                     {hintText && <div className="h-3 w-px bg-white/10 mx-1"></div>}
                     <span className="text-text-secondary hidden sm:inline text-[10px] opacity-70">{hintText}</span>
@@ -239,13 +245,22 @@ const EditorInterface: React.FC = () => {
     const wm = useContext(WindowManagerContext) as WindowManagerContextType | null;
     const editor = useContext(EditorContext) as EditorContextType | null;
     const initialized = useRef(false);
+    const [, setTick] = useState(0);
     
     // Use Engine API
     const api = useEngineAPI();
 
+    // Re-register windows when registry changes (e.g. module hot load)
+    useEffect(() => {
+        return api.subscribe('ui:registryChanged', () => {
+            setTick(t => t + 1);
+        });
+    }, [api]);
+
     useEffect(() => {
         if (!wm) return;
 
+        // Core Windows
         wm.registerWindow({
             id: 'hierarchy', title: 'Hierarchy', icon: 'ListTree', content: <HierarchyWrapper />, 
             width: 280, height: 500, initialPosition: { x: 80, y: 100 }
@@ -279,16 +294,27 @@ const EditorInterface: React.FC = () => {
             width: 280, initialPosition: { x: window.innerWidth - 300, y: 60 }
         });
         wm.registerWindow({
-            id: 'uveditor', title: 'UV Editor', icon: 'LayoutGrid', content: <UVEditor />, 
-            width: 500, height: 500, initialPosition: { x: 200, y: 200 }
-        });
-        wm.registerWindow({
             id: 'skinning', title: 'Skinning Editor', icon: 'PersonStanding', content: <SkinningEditor />, 
             width: 300, height: 400, initialPosition: { x: window.innerWidth - 650, y: 100 }
         });
         wm.registerWindow({
             id: 'timeline', title: 'Timeline', icon: 'Film', content: <Timeline />, 
             width: window.innerWidth - 450, height: 200, initialPosition: { x: 400, y: window.innerHeight - 220 }
+        });
+
+        // Dynamic Windows from Registry
+        const dynamicWindows = uiRegistry.getWindows();
+        dynamicWindows.forEach(win => {
+            const Content = win.component;
+            wm.registerWindow({
+                id: win.id,
+                title: win.title,
+                icon: win.icon,
+                width: win.width,
+                height: win.height,
+                initialPosition: win.initialPosition,
+                content: <Content />
+            });
         });
 
         if (!initialized.current) {
@@ -300,7 +326,7 @@ const EditorInterface: React.FC = () => {
             consoleService.init(); // Initialize global error catching
             initialized.current = true;
         }
-    }, [wm]);
+    }, [wm, /* tick */]); // Re-run when tick updates
 
     // Keyboard Shortcuts (Delete Object)
     useEffect(() => {
@@ -309,15 +335,19 @@ const EditorInterface: React.FC = () => {
                 const active = document.activeElement;
                 const isInput = active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA';
                 if (!isInput && editor?.selectedIds.length && editor.selectionType === 'ENTITY') {
-                    e.preventDefault();
-                    editor.selectedIds.forEach(id => api.commands.scene.deleteEntity(id));
-                    editor.setSelectedIds([]);
+                    // Only delete if main viewport or hierarchy is focused
+                    const focused = editor.focusedWidgetId;
+                    if (focused === 'hierarchy' || focused === 'VIEWPORT' || !focused) {
+                        e.preventDefault();
+                        editor.selectedIds.forEach(id => api.commands.scene.deleteEntity(id));
+                        editor.setSelectedIds([]);
+                    }
                 }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editor?.selectedIds, editor?.selectionType, api]);
+    }, [editor?.selectedIds, editor?.selectionType, editor?.focusedWidgetId, api]);
 
     if (!editor) return <div className="flex h-screen items-center justify-center text-white">Initializing...</div>;
 
@@ -381,6 +411,16 @@ const App: React.FC = () => {
 
     // New State for Simulation
     const [simulationMode, setSimulationMode] = useState<SimulationMode>('STOPPED');
+
+    // Widget Focus State - Initialized via API query
+    const [focusedWidgetId, setFocusedWidgetIdLocal] = useState<string | null>(api.queries.ui.getFocusedWidget());
+
+    // Sync Focus from API Events
+    useEffect(() => {
+        return api.subscribe('ui:focusedWidgetChanged', (payload) => {
+            setFocusedWidgetIdLocal(payload.id);
+        });
+    }, [api]);
 
     // Graph
     const [inspectedNode, setInspectedNode] = useState<GraphNode | null>(null);
@@ -481,6 +521,11 @@ const App: React.FC = () => {
         api.commands.skeleton.setOptions(settings);
     }, [api]);
 
+    // Propagate focus change to Engine/API
+    const handleSetFocusedWidgetId = useCallback((id: string | null) => {
+        api.commands.ui.setFocusedWidget(id);
+    }, [api]);
+
     const contextValue = useMemo<EditorContextType>(() => ({
         entities,
         sceneGraph: engineInstance.sceneGraph,
@@ -530,14 +575,18 @@ const App: React.FC = () => {
 
         // Skeleton visualization
         skeletonViz,
-        setSkeletonViz: handleSetSkeletonViz
+        setSkeletonViz: handleSetSkeletonViz,
+
+        // Focus Tracking
+        focusedWidgetId,
+        setFocusedWidgetId: handleSetFocusedWidgetId
     }), [
         entities, selectedIds, selectedAssetIds, inspectedNode, activeGraphConnections, 
         selectionType, meshComponentMode, tool, transformSpace, uiConfig, gridConfig, 
         snapSettings, skeletonViz, engineInstance.isPlaying, simulationMode, softSelectionEnabled, softSelectionRadius, softSelectionMode,
-        softSelectionFalloff, softSelectionHeatmapVisible, handleSetSelectedIds, handleSetMeshComponentMode,
+        softSelectionFalloff, softSelectionHeatmapVisible, focusedWidgetId, handleSetSelectedIds, handleSetMeshComponentMode,
         handleSetSoftSelectionEnabled, handleSetSoftSelectionRadius, handleSetSoftSelectionMode, handleSetSoftSelectionFalloff, handleSetSoftSelectionHeatmapVisible,
-        handleSetSkeletonViz
+        handleSetSkeletonViz, handleSetFocusedWidgetId
     ]);
 
     return (

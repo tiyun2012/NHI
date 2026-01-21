@@ -10,7 +10,7 @@ export interface Vector3 {
 
 export type RotationOrder = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX';
 export type TransformSpace = 'World' | 'Local' | 'Gimbal' | 'Parent' | 'VirtualPivot' | 'Normal' | 'Average' | 'Object' | 'Screen';
-export type MeshComponentMode = 'OBJECT' | 'VERTEX' | 'EDGE' | 'FACE';
+export type MeshComponentMode = 'OBJECT' | 'VERTEX' | 'EDGE' | 'FACE' | 'UV';
 export type SimulationMode = 'STOPPED' | 'GAME' | 'SIMULATE';
 export type SoftSelectionFalloff = 'VOLUME' | 'SURFACE';
 
@@ -181,7 +181,7 @@ export interface GraphConnection {
 // Editor Types
 export type EditorMode = 'SCENE' | 'GAME' | 'SCRIPT';
 export type ToolType = 'SELECT' | 'MOVE' | 'ROTATE' | 'SCALE';
-export type SelectionType = 'ENTITY' | 'ASSET' | 'NODE' | 'VERTEX' | 'EDGE' | 'FACE';
+export type SelectionType = 'ENTITY' | 'ASSET' | 'NODE' | 'VERTEX' | 'EDGE' | 'FACE' | 'UV';
 
 export interface PerformanceMetrics {
   fps: number;

@@ -1,12 +1,15 @@
 
-import React from 'react';
-import DockLayout, { LayoutData, BoxData } from 'rc-dock';
+import React, { useContext } from 'react';
+import DockLayout, { LayoutData } from 'rc-dock';
+import { EditorContext } from '@/editor/state/EditorContext';
 
 interface WorkspaceShellProps {
     children: React.ReactNode;
 }
 
 export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ children }) => {
+    const { setFocusedWidgetId } = useContext(EditorContext)!;
+
     const defaultLayout: LayoutData = {
         dockbox: {
             mode: 'horizontal',
@@ -26,7 +29,10 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ children }) => {
     };
 
     return (
-        <div className="w-full h-full bg-black relative">
+        <div 
+            className="w-full h-full bg-black relative"
+            onMouseDownCapture={() => setFocusedWidgetId('VIEWPORT')}
+        >
             <DockLayout
                 defaultLayout={defaultLayout}
                 style={{ width: '100%', height: '100%', background: '#000' }}

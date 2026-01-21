@@ -271,10 +271,11 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                   const engine = previewEngineRef.current;
                   if (!engine) return;
                   
-                  if (mode === 'VERTEX') {
+                  if (mode === 'VERTEX' || mode === 'UV') {
                       engine.clearDeformation();
                       const hits = engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
-                      engine.selectionSystem.modifySubSelection('VERTEX', hits, action === 'ADD' ? 'ADD' : 'SET');
+                      const type = mode === 'UV' ? 'UV' : 'VERTEX';
+                      engine.selectionSystem.modifySubSelection(type, hits, action === 'ADD' ? 'ADD' : 'SET');
                       engine.notifyUI();
                   } else if (mode === 'OBJECT') {
                       const hits = engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
@@ -369,13 +370,14 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       const queries: Partial<EngineQueries> = {
           selection: {
               getSelectedIds: () => previewEngineRef.current?.selectionSystem.selectedIndices.size ? Array.from(previewEngineRef.current.selectionSystem.selectedIndices).map(String) : [],
-              getSubSelection: () => previewEngineRef.current?.selectionSystem.subSelection || { vertexIds: new Set(), edgeIds: new Set(), faceIds: new Set() },
+              getSubSelection: () => previewEngineRef.current?.selectionSystem.subSelection || { vertexIds: new Set(), edgeIds: new Set(), faceIds: new Set(), uvIds: new Set() },
               getSubSelectionStats: () => {
                   const sub = previewEngineRef.current?.selectionSystem.subSelection;
                   return {
                       vertexCount: sub?.vertexIds.size || 0,
                       edgeCount: sub?.edgeIds.size || 0,
                       faceCount: sub?.faceIds.size || 0,
+                      uvCount: sub?.uvIds.size || 0,
                       lastVertex: sub?.vertexIds.size ? Array.from(sub.vertexIds).pop() ?? null : null,
                       lastFace: sub?.faceIds.size ? Array.from(sub.faceIds).pop() ?? null : null,
                   };
@@ -704,6 +706,8 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       localInteractionApi.selection.modifySubSelection('EDGE', [key], action);
                   } else if (meshComponentMode === 'FACE') {
                       localInteractionApi.selection.modifySubSelection('FACE', [picked.faceId], action);
+                  } else if (meshComponentMode === 'UV') {
+                      localInteractionApi.selection.modifySubSelection('UV', [picked.vertexId], action);
                   }
                   return;
               }
@@ -738,7 +742,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       const isGizmoActive = !!gizmoSystemRef.current?.activeAxis;
 
       if (e.buttons === 1 && !e.altKey && !dragState && !selectionBoxRef.current && !isAdjustingBrush && !isGizmoActive) {
-           if (meshComponentModeRef.current === 'VERTEX' && previewEngineRef.current) {
+           if ((meshComponentModeRef.current === 'VERTEX' || meshComponentModeRef.current === 'UV') && previewEngineRef.current) {
                 previewEngineRef.current.selectionSystem.selectVerticesInBrush(mx, my, rect.width, rect.height, !e.ctrlKey);
            }
       }
@@ -748,7 +752,9 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       }
 
       gizmoSystemRef.current?.update(0, mx, my, rect.width, rect.height, false, false);
-      if (meshComponentModeRef.current === 'VERTEX') previewEngineRef.current?.selectionSystem.highlightVertexAt(mx, my, rect.width, rect.height);
+      if (meshComponentModeRef.current === 'VERTEX' || meshComponentModeRef.current === 'UV') {
+          previewEngineRef.current?.selectionSystem.highlightVertexAt(mx, my, rect.width, rect.height);
+      }
 
       if (dragStateRef.current?.isDragging) {
           const dx = e.clientX - dragStateRef.current.startX; const dy = e.clientY - dragStateRef.current.startY;
@@ -783,6 +789,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                      if (sb.mode === 'VERTEX') localInteractionApi.selection.modifySubSelection('VERTEX', [], 'SET');
                      else if (sb.mode === 'EDGE') localInteractionApi.selection.modifySubSelection('EDGE', [], 'SET');
                      else if (sb.mode === 'FACE') localInteractionApi.selection.modifySubSelection('FACE', [], 'SET');
+                     else if (sb.mode === 'UV') localInteractionApi.selection.modifySubSelection('UV', [], 'SET');
                  } else {
                      localInteractionApi.selection.clear();
                  }
@@ -812,6 +819,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                           { id: 'VERTEX', icon: 'Dot', title: 'Vertex Mode' },
                           { id: 'EDGE', icon: 'Minus', title: 'Edge Mode' },
                           { id: 'FACE', icon: 'Square', title: 'Face Mode' },
+                          { id: 'UV', icon: 'LayoutGrid', title: 'UV Mode' },
                         ] as const).map(m => (
                           <button
                             key={m.id}

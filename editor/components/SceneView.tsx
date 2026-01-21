@@ -40,7 +40,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
     // --- HOOKS ---
     const { isAdjustingBrush, isBrushKeyHeld } = useBrushInteraction({
         scopeRef: containerRef,
-        // Only allow brush/heatmap interactions in component mode (VERTEX/EDGE/FACE).
+        // Only allow brush/heatmap interactions in component mode (VERTEX/EDGE/FACE/UV).
         isBrushContextEnabled: () => meshComponentMode !== 'OBJECT',
         onBrushAdjustEnd: () => engineInstance.endVertexDrag()
     });
@@ -282,6 +282,8 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                         api.commands.selection.modifySubSelection('EDGE', [id], 'TOGGLE');
                     } else if (meshComponentMode === 'FACE') {
                         api.commands.selection.modifySubSelection('FACE', [result.faceId], 'TOGGLE');
+                    } else if (meshComponentMode === 'UV') {
+                        api.commands.selection.modifySubSelection('UV', [result.vertexId], 'TOGGLE');
                     }
                     
                     return;
@@ -344,14 +346,14 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
 
         if (isAdjustingBrush) return; // Handled by hook
 
-        if (engineInstance.isInputDown && !dragState && !selectionBox && meshComponentMode === 'VERTEX') {
+        if (engineInstance.isInputDown && !dragState && !selectionBox && (meshComponentMode === 'VERTEX' || meshComponentMode === 'UV')) {
             engineInstance.selectionSystem.selectVerticesInBrush(mx, my, rect.width, rect.height, !e.ctrlKey); 
         }
 
         engineInstance.gizmoSystem.update(0, mx, my, rect.width, rect.height, false, false);
 
         if (meshComponentMode !== 'OBJECT') {
-            if (meshComponentMode === 'VERTEX') engineInstance.selectionSystem.highlightVertexAt(mx, my, rect.width, rect.height);
+            if (meshComponentMode === 'VERTEX' || meshComponentMode === 'UV') engineInstance.selectionSystem.highlightVertexAt(mx, my, rect.width, rect.height);
         }
 
         if (dragState && dragState.isDragging) {
@@ -506,7 +508,6 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                     currentMode={meshComponentMode}
                     onSelectMode={(m) => { setMeshComponentMode(m); closePieMenu(); }}
                     onAction={handlePieAction}
-                    /* Fixed: Removed non-existent onSelect prop */
                     onClose={closePieMenu}
                 />, 
                 document.body

@@ -30,6 +30,7 @@ const MeshModeSelector: React.FC<{ object: Entity }> = ({ object }) => {
         { id: 'VERTEX', icon: 'Target', title: 'Vertex Mode' },
         { id: 'EDGE', icon: 'Move', title: 'Edge Mode' },
         { id: 'FACE', icon: 'Square', title: 'Face Mode' },
+        { id: 'UV', icon: 'LayoutGrid', title: 'UV Mode' },
     ];
 
     return (
@@ -76,7 +77,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
   const entity = useMemo((): Entity | null => {
       if (!activeObject) return null;
       if (activeType === 'ENTITY') return activeObject as Entity;
-      if (['VERTEX', 'EDGE', 'FACE'].includes(activeType as string) && (activeObject as any).components) {
+      if (['VERTEX', 'EDGE', 'FACE', 'UV'].includes(activeType as string) && (activeObject as any).components) {
           return activeObject as Entity;
       }
       return null;
@@ -216,12 +217,13 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ object: initialO
       );
   }
 
-  if (['VERTEX', 'EDGE', 'FACE'].includes(activeType as string)) {
+  if (['VERTEX', 'EDGE', 'FACE', 'UV'].includes(activeType as string)) {
       const subSel = api.queries.selection.getSubSelection();
       let count = 0; let label = '';
       if (activeType === 'VERTEX') { count = subSel.vertexIds.size; label = 'Vertices'; }
       if (activeType === 'EDGE') { count = subSel.edgeIds.size; label = 'Edges'; }
       if (activeType === 'FACE') { count = subSel.faceIds.size; label = 'Faces'; }
+      if (activeType === 'UV') { count = subSel.uvIds.size; label = 'UVs'; }
 
       return (
         <div className="h-full bg-panel flex flex-col font-sans border-l border-black/20">

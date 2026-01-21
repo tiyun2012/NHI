@@ -91,6 +91,7 @@ export const AssetViewportOptionsPanel: React.FC<AssetViewportOptionsPanelProps>
     { label: 'Vertex', value: 'VERTEX', icon: 'Dot' },
     { label: 'Edge', value: 'EDGE', icon: 'Minus' },
     { label: 'Face', value: 'FACE', icon: 'Square' },
+    { label: 'UV', value: 'UV', icon: 'LayoutGrid' },
   ];
 
   return (

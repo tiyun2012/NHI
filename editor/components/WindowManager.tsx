@@ -1,7 +1,8 @@
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useContext } from 'react';
 import { DraggableWindow } from './DraggableWindow';
 import { Icon } from './Icon';
+import { EditorContext } from '@/editor/state/EditorContext';
 
 export interface WindowItem {
     id: string;
@@ -27,6 +28,7 @@ export interface WindowManagerContextType {
 export const WindowManagerContext = React.createContext<WindowManagerContextType | null>(null);
 
 export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { setFocusedWidgetId } = useContext(EditorContext)!;
     const [windows, setWindows] = useState<Record<string, WindowItem>>({});
     const [maxZ, setMaxZ] = useState(100);
 
@@ -49,7 +51,9 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
             }));
             return nextZ;
         });
-    }, []);
+        // Sync to global editor focus state
+        setFocusedWidgetId(id);
+    }, [setFocusedWidgetId]);
 
     const openWindow = useCallback((id: string) => {
         setWindows(prev => {

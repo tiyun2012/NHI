@@ -12,7 +12,8 @@ export class SelectionSystem {
     subSelection = {
         vertexIds: new Set<number>(),
         edgeIds: new Set<string>(),
-        faceIds: new Set<number>()
+        faceIds: new Set<number>(),
+        uvIds: new Set<number>()
     };
     hoveredVertex: { entityId: string, index: number } | null = null;
 
@@ -30,11 +31,12 @@ export class SelectionSystem {
         this.subSelection.vertexIds.clear(); 
         this.subSelection.edgeIds.clear(); 
         this.subSelection.faceIds.clear();
+        this.subSelection.uvIds.clear();
         this.hoveredVertex = null;
         this.engine.recalculateSoftSelection(); 
     }
 
-    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') {
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE' | 'UV', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') {
         this.engine.clearDeformation(); 
 
         let targetSet: Set<any>;
@@ -46,8 +48,11 @@ export class SelectionSystem {
         } else if (type === 'EDGE') {
             targetSet = this.subSelection.edgeIds;
             validIds = ids.filter(id => typeof id === 'string');
-        } else {
+        } else if (type === 'FACE') {
             targetSet = this.subSelection.faceIds;
+            validIds = ids.filter(id => typeof id === 'number');
+        } else {
+            targetSet = this.subSelection.uvIds;
             validIds = ids.filter(id => typeof id === 'number');
         }
 
@@ -271,7 +276,8 @@ export class SelectionSystem {
     }
 
     highlightVertexAt(mx: number, my: number, w: number, h: number) {
-        if (this.engine.meshComponentMode !== 'VERTEX' || this.selectedIndices.size === 0 || !this.engine.currentViewProj) {
+        // Highlight logic applies to VERTEX and UV modes
+        if ((this.engine.meshComponentMode !== 'VERTEX' && this.engine.meshComponentMode !== 'UV') || this.selectedIndices.size === 0 || !this.engine.currentViewProj) {
             this.hoveredVertex = null;
             return;
         }
@@ -311,7 +317,8 @@ export class SelectionSystem {
      * Returns the list of vertex indices whose projected screen position overlaps the rect.
      */
     selectVerticesInRect(x: number, y: number, w: number, h: number): number[] {
-        if (this.engine.meshComponentMode !== 'VERTEX' || this.selectedIndices.size === 0 || !this.engine.currentViewProj) return [];
+        // Vertex selection logic applies to VERTEX and UV modes
+        if ((this.engine.meshComponentMode !== 'VERTEX' && this.engine.meshComponentMode !== 'UV') || this.selectedIndices.size === 0 || !this.engine.currentViewProj) return [];
 
         const idx = Array.from(this.selectedIndices)[0];
         const entityId = this.engine.ecs.store.ids[idx];
@@ -392,10 +399,12 @@ export class SelectionSystem {
             localRadius
         );
 
-        if (add) {
-            vertices.forEach(v => this.subSelection.vertexIds.add(v));
-        } else {
-            vertices.forEach(v => this.subSelection.vertexIds.delete(v));
+        if (this.engine.meshComponentMode === 'VERTEX') {
+            if (add) vertices.forEach(v => this.subSelection.vertexIds.add(v));
+            else vertices.forEach(v => this.subSelection.vertexIds.delete(v));
+        } else if (this.engine.meshComponentMode === 'UV') {
+            if (add) vertices.forEach(v => this.subSelection.uvIds.add(v));
+            else vertices.forEach(v => this.subSelection.uvIds.delete(v));
         }
         
         this.engine.recalculateSoftSelection();
@@ -431,8 +440,8 @@ export class SelectionSystem {
                 this.subSelection.edgeIds.add(key);
             });
         } 
-        else if (mode === 'VERTEX') {
-            const verts = Array.from(this.subSelection.vertexIds);
+        else if (mode === 'VERTEX' || mode === 'UV') {
+            const verts = Array.from(mode === 'UV' ? this.subSelection.uvIds : this.subSelection.vertexIds);
             if (verts.length < 2) {
                 consoleService.warn('Select at least 2 vertices to define loop direction', "SelectionSystem");
                 return;
@@ -445,7 +454,10 @@ export class SelectionSystem {
             
             if (topo.graph && topo.graph.edgeKeyToHalfEdge.has(key)) {
                 const loop = MeshTopologyUtils.getVertexLoop(topo, v1, v2);
-                loop.forEach(v => this.subSelection.vertexIds.add(v));
+                loop.forEach(v => {
+                    if (mode === 'UV') this.subSelection.uvIds.add(v);
+                    else this.subSelection.vertexIds.add(v);
+                });
                 consoleService.success(`Selected Vertex Loop`, "SelectionSystem");
             } else {
                 consoleService.warn('Selected vertices are not connected', "SelectionSystem");
@@ -490,6 +502,9 @@ export class SelectionSystem {
 
         if (this.engine.meshComponentMode === 'VERTEX') {
             return this.subSelection.vertexIds;
+        }
+        if (this.engine.meshComponentMode === 'UV') {
+            return this.subSelection.uvIds;
         }
         if (this.engine.meshComponentMode === 'EDGE') {
             this.subSelection.edgeIds.forEach(key => {

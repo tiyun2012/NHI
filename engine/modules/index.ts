@@ -8,6 +8,7 @@ import { UIModule } from '@/features/ui/UIModule';
 import { SculptModule } from '@/features/sculpt/SculptModule';
 import { ModelingModule } from '@/features/modeling/ModelingModule';
 import { SkeletonModule } from '@/features/skeleton/SkeletonModule';
+import { UVEditorModule } from '@/features/uv-editor/UVEditorModule';
 
 export const MODULES: readonly EngineModule[] = [
   CoreModule,
@@ -17,5 +18,6 @@ export const MODULES: readonly EngineModule[] = [
   UIModule,
   SculptModule,
   ModelingModule,
-  SkeletonModule
+  SkeletonModule,
+  UVEditorModule
 ];

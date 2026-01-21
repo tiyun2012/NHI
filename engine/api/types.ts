@@ -3,12 +3,13 @@ import React from 'react';
 import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset, Entity, PerformanceMetrics } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';
+import type { UIWindow } from '@/editor/registries/UIRegistry';
 
 export interface EngineCommands {
   selection: {
     setSelected(ids: readonly string[]): void;
     clear(): void;
-    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
+    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE' | 'UV', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
     clearSubSelection(): void;
     selectLoop(mode: MeshComponentMode): void;
     selectInRect(rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE'): void;
@@ -59,6 +60,11 @@ export interface EngineCommands {
         component: React.ComponentType;
         order: number;
     }): void;
+    /**
+     * Register a new floating window available in the Window Manager.
+     */
+    registerWindow(config: UIWindow): void;
+    setFocusedWidget(id: string | null): void;
   };
   sculpt: {
     setEnabled(enabled: boolean): void;
@@ -76,11 +82,12 @@ export interface EngineQueries {
   selection: {
     getSelectedIds(): string[];
     /** Prefer getSubSelectionStats in UI; getSubSelection returns engine internals. */
-    getSubSelection(): { vertexIds: Set<number>; edgeIds: Set<string>; faceIds: Set<number> };
+    getSubSelection(): { vertexIds: Set<number>; edgeIds: Set<string>; faceIds: Set<number>; uvIds: Set<number> };
     getSubSelectionStats(): {
       vertexCount: number;
       edgeCount: number;
       faceCount: number;
+      uvCount: number;
       lastVertex: number | null;
       lastFace: number | null;
     };
@@ -105,6 +112,9 @@ export interface EngineQueries {
     /** Retrieve the asset associated with an entity's Mesh component */
     getAssetByEntity(entityId: string): Asset | null;
   };
+  ui: {
+    getFocusedWidget(): string | null;
+  };
 }
 
 export interface EngineEvents {
@@ -118,6 +128,7 @@ export interface EngineEvents {
   'component:added': { id: string; type: ComponentType };
   'component:removed': { id: string; type: ComponentType };
   'ui:registryChanged': void;
+  'ui:focusedWidgetChanged': { id: string | null };
   [key: string]: any; 
 }
 

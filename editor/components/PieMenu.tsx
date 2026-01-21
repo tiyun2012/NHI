@@ -38,6 +38,7 @@ export const PieMenu: React.FC<PieMenuProps> = ({ x, y, onSelectMode, onAction, 
             { id: 'VERTEX', icon: 'Dot', label: 'Vertex', type: 'MODE' },
             { id: 'EDGE', icon: 'Minus', label: 'Edge', type: 'MODE' },
             { id: 'FACE', icon: 'Square', label: 'Face', type: 'MODE' },
+            { id: 'UV', icon: 'LayoutGrid', label: 'UV', type: 'MODE' },
             { id: 'OBJECT', icon: 'Box', label: 'Object', type: 'MODE' }
         ];
 
@@ -74,7 +75,7 @@ export const PieMenu: React.FC<PieMenuProps> = ({ x, y, onSelectMode, onAction, 
                 { id: 'bridge', icon: 'Link', label: 'Bridge', type: 'ACTION' },
                 { id: 'loop_edge', icon: 'RefreshCw', label: 'Edge Loop', type: 'ACTION' }
             ];
-        } else if (currentMode === 'VERTEX') {
+        } else if (currentMode === 'VERTEX' || currentMode === 'UV') {
             actionItems = [
                 { id: 'weld', icon: 'Merge', label: 'Weld', type: 'ACTION' },
                 { id: 'connect', icon: 'GitCommit', label: 'Connect', type: 'ACTION' },

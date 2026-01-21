@@ -88,6 +88,10 @@ export interface EditorContextType {
   // Skeleton visualization
   skeletonViz: SkeletonVizSettings;
   setSkeletonViz: (settings: SkeletonVizSettings) => void;
+
+  // Widget Focus Tracking
+  focusedWidgetId: string | null;
+  setFocusedWidgetId: (id: string | null) => void;
 }
 
 export const EditorContext = React.createContext<EditorContextType | null>(null);

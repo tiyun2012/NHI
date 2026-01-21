@@ -1,3 +1,4 @@
+
 import type { EngineModule } from '@/engine/core/moduleHost';
 import { registerCommands, registerQueries } from '@/engine/core/registry';
 import { SELECTION_CHANGED } from './selection.events';
@@ -9,7 +10,6 @@ function getSelectedIdsFromEngine(engine: any): string[] {
     const id = engine.ecs.store.ids[idx];
     if (id) ids.push(id);
   });
-  // Selection order is typically insertion, but we normalize for stable equality checks.
   ids.sort();
   return ids;
 }
@@ -22,7 +22,6 @@ function keyFromNumberSet(set: Set<number>): string {
     arr.sort((a, b) => a - b);
     return `${size}:${arr.join(',')}`;
   }
-  // Cheap-ish hash for large sets
   let min = Infinity, max = -Infinity, sum = 0;
   for (const v of set) {
     if (v < min) min = v;
@@ -40,7 +39,6 @@ function keyFromStringSet(set: Set<string>): string {
     arr.sort();
     return `${size}:${arr.join(',')}`;
   }
-  // Approximate key for large sets
   let min = '', max = '';
   let i = 0;
   for (const v of set) {
@@ -79,6 +77,7 @@ export const SelectionModule: EngineModule = {
         ctx.engine.selectionSystem.subSelection.vertexIds.clear();
         ctx.engine.selectionSystem.subSelection.edgeIds.clear();
         ctx.engine.selectionSystem.subSelection.faceIds.clear();
+        ctx.engine.selectionSystem.subSelection.uvIds.clear();
         ctx.engine.recalculateSoftSelection(true);
         ctx.events.emit('selection:subChanged', undefined);
         ctx.engine.notifyUI();
@@ -93,30 +92,26 @@ export const SelectionModule: EngineModule = {
 
           let finalIds = hits;
           if (action === 'ADD') {
-            // For OBJECT mode, ADD behaves as union
             const current = Array.from(ctx.engine.selectionSystem.selectedIndices).map((idx) => ctx.engine.ecs.store.ids[idx]);
             finalIds = Array.from(new Set([...current, ...hits]));
           }
 
           ctx.engine.setSelected(finalIds);
           ctx.events.emit(SELECTION_CHANGED, { ids: finalIds });
-        } else if (mode === 'VERTEX') {
-          // For components, we rely on modifySubSelection to handle the set logic
+        } else if (mode === 'VERTEX' || mode === 'UV') {
           const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
+          const type = mode === 'UV' ? 'UV' : 'VERTEX';
           if (indices.length > 0) {
-            ctx.engine.selectionSystem.modifySubSelection('VERTEX', indices, action === 'ADD' ? 'ADD' : 'SET');
+            ctx.engine.selectionSystem.modifySubSelection(type, indices, action === 'ADD' ? 'ADD' : 'SET');
             ctx.events.emit('selection:subChanged', undefined);
           } else if (action === 'SET') {
-            ctx.engine.selectionSystem.modifySubSelection('VERTEX', [], 'SET');
+            ctx.engine.selectionSystem.modifySubSelection(type, [], 'SET');
             ctx.events.emit('selection:subChanged', undefined);
           }
         }
-        // TODO: Implement EDGE/FACE marquee support in SelectionSystem
-
         ctx.engine.notifyUI();
       },
       focus() {
-        // Emit focus event so viewports can respond
         ctx.events.emit('selection:focus', undefined);
       },
       clear() {
@@ -131,13 +126,8 @@ export const SelectionModule: EngineModule = {
       getSelectedIds() {
         return getSelectedIdsFromEngine(ctx.engine);
       },
-
-      /**
-       * Prefer this in UI instead of reaching into engine.selectionSystem.subSelection.
-       */
       getSubSelectionStats() {
         const sub = ctx.engine.selectionSystem.subSelection;
-        // "Last" is not meaningful for Sets, but it is useful for a status bar.
         const lastVertex = sub.vertexIds.size ? Array.from(sub.vertexIds.values()).pop() ?? null : null;
         const lastFace = sub.faceIds.size ? Array.from(sub.faceIds.values()).pop() ?? null : null;
 
@@ -145,23 +135,16 @@ export const SelectionModule: EngineModule = {
           vertexCount: sub.vertexIds.size,
           edgeCount: sub.edgeIds.size,
           faceCount: sub.faceIds.size,
+          uvCount: sub.uvIds.size, 
           lastVertex,
           lastFace,
         };
       },
-
-      /**
-       * Deprecated: exposes engine internals. Kept for backward compatibility.
-       */
       getSubSelection() {
         return ctx.engine.selectionSystem.subSelection;
       },
     });
 
-
-    // --- Hybrid migration safety ---
-    // While legacy code still calls engine.setSelected / selectionSystem.* directly,
-    // keep UI state in sync by mirroring engine state into the typed events.
     let lastSelectionKey = '';
     let lastSubKey = '';
 
@@ -178,6 +161,7 @@ export const SelectionModule: EngineModule = {
         keyFromNumberSet(sub.vertexIds),
         keyFromStringSet(sub.edgeIds),
         keyFromNumberSet(sub.faceIds),
+        keyFromNumberSet(sub.uvIds)
       ].join('||');
 
       if (subKey !== lastSubKey) {
@@ -188,7 +172,6 @@ export const SelectionModule: EngineModule = {
 
     sync();
 
-    // Ensure we don't double-subscribe for the same engine (e.g. HMR / multiple providers).
     const prev = offByEngine.get(ctx.engine as any);
     prev?.();
 
