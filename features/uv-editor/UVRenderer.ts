@@ -87,24 +87,34 @@ export class UVRenderer {
             });
         }
 
-        // 3. Vertices (Synced Visuals)
-        const vSize = Math.max(3, (uiConfig.vertexSize || 1.0) * 3);
-        const selSize = vSize * 1.5;
-        const primSize = vSize * 2.0;
+        // 3. Vertices
+        // Only render vertices if we are in a component mode OR overlay is explicitly on.
+        // Default (Object Mode) will skip this loop.
+        if (selectionMode === 'VERTEX' || selectionMode === 'UV' || uiConfig.showVertexOverlay) {
+            const vSize = Math.max(3, (uiConfig.vertexSize || 1.0) * 3);
+            const selSize = vSize * 1.5;
+            const primSize = vSize * 2.0;
 
-        for(let i=0; i<uvBuffer.length/2; i++) {
-            const isSel = selection.indices.has(i);
-            const isPrimary = i === selectedVertex;
-            
-            if (isPrimary) {
-                ctx2d.fillStyle = '#ffffff';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - primSize/2, toY(uvBuffer[i*2+1]) - primSize/2, primSize, primSize);
-            } else if (isSel) {
-                ctx2d.fillStyle = uiConfig.selectionEdgeColor || '#4f80f8';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - selSize/2, toY(uvBuffer[i*2+1]) - selSize/2, selSize, selSize);
-            } else if (selectionMode === 'VERTEX' || selectionMode === 'UV' || uiConfig.showVertexOverlay) {
-                ctx2d.fillStyle = uiConfig.vertexColor || '#a855f7';
-                ctx2d.fillRect(toX(uvBuffer[i*2]) - vSize/2, toY(uvBuffer[i*2+1]) - vSize/2, vSize, vSize);
+            for(let i=0; i<uvBuffer.length/2; i++) {
+                const isSel = selection.indices.has(i);
+                const isPrimary = i === selectedVertex;
+                
+                if (isPrimary) {
+                    ctx2d.fillStyle = '#ffffff';
+                    ctx2d.fillRect(toX(uvBuffer[i*2]) - primSize/2, toY(uvBuffer[i*2+1]) - primSize/2, primSize, primSize);
+                } else if (isSel) {
+                    ctx2d.fillStyle = uiConfig.selectionEdgeColor || '#4f80f8';
+                    ctx2d.fillRect(toX(uvBuffer[i*2]) - selSize/2, toY(uvBuffer[i*2+1]) - selSize/2, selSize, selSize);
+                } else {
+                    // Mode-dependent coloring
+                    if (selectionMode === 'UV') {
+                        ctx2d.fillStyle = '#55f785'; // UV Green
+                    } else {
+                        // VERTEX mode or Overlay (Object Mode with overlay) -> Purple
+                        ctx2d.fillStyle = uiConfig.vertexColor || '#a855f7'; 
+                    }
+                    ctx2d.fillRect(toX(uvBuffer[i*2]) - vSize/2, toY(uvBuffer[i*2+1]) - vSize/2, vSize, vSize);
+                }
             }
         }
     }

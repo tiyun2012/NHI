@@ -9,9 +9,9 @@ export const DEFAULT_UI_CONFIG: UIConfiguration = {
     resizeHandleLength: 1.0,
     selectionEdgeHighlight: true,
     selectionEdgeColor: '#4f80f8', // Unity Blue
-    showVertexOverlay: true, // Default ON
+    showVertexOverlay: false, // Default OFF for clean Object Mode
     vertexSize: 1.0,
-    vertexColor: '#a855f7', // Purple
+    vertexColor: '#a855f7', // Purple (Global/3D Viewport Default)
 };
 
 export const DEFAULT_GRID_CONFIG: GridConfiguration = {

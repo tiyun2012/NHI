@@ -710,7 +710,6 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                   showGrid={showGrid} setShowGrid={setShowGrid}
                   showWireframe={showWireframe} setShowWireframe={setShowWireframe}
                   onResetCamera={() => resetCameraRef.current()}
-                  activeTab={'VIEWPORT'} setActiveTab={() => {}} // Legacy prop ignored
                   renderMode={renderMode} setRenderMode={setRenderMode}
               />
               <div className="flex-1 relative">
