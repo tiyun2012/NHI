@@ -32,6 +32,14 @@ export class UVRenderer {
         const toX = (u: number) => x + u * k;
         const toY = (v: number) => y + (1 - v) * k;
 
+        // Helper: Convert hex to rgba for fills
+        const hex = uiConfig.selectionEdgeColor || '#4f80f8';
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        const faceSelectionFill = `rgba(${r}, ${g}, ${b}, 0.4)`; // Increased opacity for visibility
+        const faceEdgeHighlight = `rgba(${r}, ${g}, ${b}, 1.0)`;
+
         // 1. Grid
         ctx2d.strokeStyle = '#222'; ctx2d.lineWidth = 1;
         for(let i=0; i<=10; i++) {
@@ -46,46 +54,64 @@ export class UVRenderer {
 
         // 2. Mesh Connectivity
         if (asset?.topology) {
-            asset.topology.faces.forEach((face: number[], fIdx: number) => {
+            // First Pass: Unselected Edges
+            ctx2d.beginPath();
+            ctx2d.strokeStyle = '#4f80f8'; // Default edge color (dim blue)
+            ctx2d.lineWidth = 0.5;
+            
+            asset.topology.faces.forEach((face: number[]) => {
                 if (face.length < 3) return;
-
-                // Highlight Selected Faces
-                if (selection.faces.has(fIdx)) {
-                    // Use a transparent green to match UV theme (#55f785)
-                    ctx2d.fillStyle = 'rgba(85, 247, 133, 0.25)'; 
-                    ctx2d.beginPath();
+                
+                // Optimization: Draw all unselected mesh edges in one batch if possible, 
+                // but we need to skip lines that are part of selected faces to avoid z-fighting/overdraw
+                const isFaceSelected = false; // We draw fill later
+                
+                if (!isFaceSelected) {
                     ctx2d.moveTo(toX(uvBuffer[face[0]*2]), toY(uvBuffer[face[0]*2+1]));
                     for(let i=1; i<face.length; i++) ctx2d.lineTo(toX(uvBuffer[face[i]*2]), toY(uvBuffer[face[i]*2+1]));
-                    ctx2d.closePath();
-                    ctx2d.fill();
+                    ctx2d.lineTo(toX(uvBuffer[face[0]*2]), toY(uvBuffer[face[0]*2+1]));
                 }
-
-                // Draw Edges
-                ctx2d.beginPath();
-                ctx2d.strokeStyle = '#4f80f8';
-                ctx2d.lineWidth = 0.5;
-                for(let i=0; i<face.length; i++) {
-                    const v1 = face[i];
-                    const v2 = face[(i+1)%face.length];
-                    const edgeKey = [v1, v2].sort((a,b)=>a-b).join('-');
-                    
-                    const isEdgeSelected = selection.edges.has(edgeKey);
-                    if (isEdgeSelected) {
-                        ctx2d.save();
-                        ctx2d.strokeStyle = '#fbbf24'; 
-                        ctx2d.lineWidth = 2.0;
-                        ctx2d.beginPath();
-                        ctx2d.moveTo(toX(uvBuffer[v1*2]), toY(uvBuffer[v1*2+1]));
-                        ctx2d.lineTo(toX(uvBuffer[v2*2]), toY(uvBuffer[v2*2+1]));
-                        ctx2d.stroke();
-                        ctx2d.restore();
-                    } else {
-                        ctx2d.moveTo(toX(uvBuffer[v1*2]), toY(uvBuffer[v1*2+1]));
-                        ctx2d.lineTo(toX(uvBuffer[v2*2]), toY(uvBuffer[v2*2+1]));
-                    }
-                }
-                ctx2d.stroke();
             });
+            ctx2d.stroke();
+
+            // Second Pass: Selected Faces (Fill & Outline)
+            if (selection.faces.size > 0) {
+                ctx2d.fillStyle = faceSelectionFill;
+                ctx2d.strokeStyle = faceEdgeHighlight;
+                ctx2d.lineWidth = 2.0;
+
+                asset.topology.faces.forEach((face: number[], fIdx: number) => {
+                    if (selection.faces.has(fIdx) && face.length >= 3) {
+                        ctx2d.beginPath();
+                        ctx2d.moveTo(toX(uvBuffer[face[0]*2]), toY(uvBuffer[face[0]*2+1]));
+                        for(let i=1; i<face.length; i++) ctx2d.lineTo(toX(uvBuffer[face[i]*2]), toY(uvBuffer[face[i]*2+1]));
+                        ctx2d.closePath();
+                        ctx2d.fill();
+                        ctx2d.stroke();
+                    }
+                });
+            }
+
+            // Third Pass: Selected Edges (Edge Mode)
+            if (selection.edges.size > 0) {
+                ctx2d.beginPath();
+                ctx2d.strokeStyle = '#fbbf24'; // Selected Edge (Orange/Gold)
+                ctx2d.lineWidth = 2.0;
+                
+                asset.topology.faces.forEach((face: number[]) => {
+                    for(let i=0; i<face.length; i++) {
+                        const v1 = face[i];
+                        const v2 = face[(i+1)%face.length];
+                        const edgeKey = [v1, v2].sort((a,b)=>a-b).join('-');
+                        
+                        if (selection.edges.has(edgeKey)) {
+                            ctx2d.moveTo(toX(uvBuffer[v1*2]), toY(uvBuffer[v1*2+1]));
+                            ctx2d.lineTo(toX(uvBuffer[v2*2]), toY(uvBuffer[v2*2+1]));
+                        }
+                    }
+                });
+                ctx2d.stroke();
+            }
         }
 
         // 3. Vertices

@@ -197,7 +197,7 @@ export const MeshModule: EngineModule = {
                         border = 0.0; 
                     }
 
-                    engine.debugRenderer.drawPointRaw(wx, wy, wz, r, g, b, size, border);
+                    engine.debugRenderer.drawPointRaw(wx, wy, wz, r, g, b, 1.0, size, border);
                 }
             }
         });

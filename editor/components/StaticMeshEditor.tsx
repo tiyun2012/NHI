@@ -497,7 +497,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                   engine.notifyUI();
               },
               setSelected: (ids) => {
-                  engine.selectionSystem.setSelected(ids);
+                  engine.setSelected(ids); // Use engine.setSelected to ensure skeleton update
                   engine.notifyUI();
               },
               clear: () => {
@@ -513,7 +513,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
                       engine.notifyUI();
                   } else if (mode === 'OBJECT') {
                       const hits = engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
-                      engine.selectionSystem.setSelected(hits);
+                      engine.setSelected(hits); // Use engine.setSelected
                       engine.notifyUI();
                   }
               },
@@ -616,7 +616,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
           mesh: {
               getAssetByEntity: (eid) => {
                   if (engine.entityId === eid) {
-                      return assetManager.getAsset(assetId);
+                      return assetManager.getAsset(assetId) || null;
                   }
                   return null;
               }
@@ -639,10 +639,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       return {
           commands: commands as EngineCommands,
           queries: queries as EngineQueries,
-          subscribe: (event: any, cb: any) => {
+          subscribe: ((event: string, cb: (payload: any) => void) => {
               engine.events.on(event, cb);
               return () => engine.events.off(event, cb);
-          }
+          }) as any
       };
   }, [localInteractionApi, assetId, engine, localFocusedWidget]);
 

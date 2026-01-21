@@ -126,6 +126,33 @@ export class AssetViewportEngine implements IEngine {
         this.deformationSystem.clearDeformation();
     }
 
+    // --- Selection Interface (IEngine) ---
+    setSelected(ids: string[]) {
+        this.selectionSystem.setSelected(ids);
+        this.updateSkeletonToolActive(ids);
+    }
+
+    private updateSkeletonToolActive(ids: string[]) {
+        // Simple logic for local preview: if we selected the preview mesh, active the skeleton tool for it
+        if (ids.length === 1 && ids[0] === this.previewEntityId) {
+             const idx = this.ecs.idToIndex.get(this.previewEntityId!);
+             if (idx !== undefined) {
+                 const meshIntId = this.ecs.store.meshType[idx];
+                 const uuid = assetManager.meshIntToUuid.get(meshIntId);
+                 if (uuid) {
+                     const asset = assetManager.getAsset(uuid);
+                     if (asset && asset.type === 'SKELETAL_MESH') {
+                         const skelAsset = asset as SkeletalMeshAsset;
+                         this.skeletonTool.setActive(skelAsset.skeletonAssetId || uuid, this.previewEntityId);
+                         return;
+                     }
+                 }
+             }
+        }
+        // Fallback or clear
+        this.skeletonTool.setActive(null, null);
+    }
+
     initGL(gl: WebGL2RenderingContext) {
         this.meshSystem.init(gl);
         this.debugRenderer.init(gl);
@@ -305,6 +332,7 @@ export class AssetViewportEngine implements IEngine {
 
         const isObjectMode = this.meshComponentMode === 'OBJECT';
         const isVertexMode = this.meshComponentMode === 'VERTEX';
+        const isFaceMode = this.meshComponentMode === 'FACE';
 
         // Only draw overlays if enabled
         if (isObjectMode && !this.uiConfig.selectionEdgeHighlight) return;
@@ -335,17 +363,47 @@ export class AssetViewportEngine implements IEngine {
             const colors = asset.geometry.colors;
             const topo = asset.topology;
 
+            // Pre-calculate transformed vertices for performance
+            const worldVerts = new Float32Array(verts.length);
+            for(let i=0; i<verts.length/3; i++) {
+                const x = verts[i*3], y = verts[i*3+1], z = verts[i*3+2];
+                const wx = worldMat[0]*x + worldMat[4]*y + worldMat[8]*z + worldMat[12];
+                const wy = worldMat[1]*x + worldMat[5]*y + worldMat[9]*z + worldMat[13];
+                const wz = worldMat[2]*x + worldMat[6]*y + worldMat[10]*z + worldMat[14];
+                worldVerts[i*3] = wx; worldVerts[i*3+1] = wy; worldVerts[i*3+2] = wz;
+            }
+
+            const getP = (idx: number) => ({ x: worldVerts[idx*3], y: worldVerts[idx*3+1], z: worldVerts[idx*3+2] });
+
+            // Draw Face Selection (Filled Triangles)
+            if (isFaceMode) {
+                const faceColor = { ...colObjectSelection, a: 0.25 }; // Semi-transparent
+                topo.faces.forEach((face: number[], fIdx: number) => {
+                    if (this.selectionSystem.subSelection.faceIds.has(fIdx)) {
+                        // Triangulate fan
+                        const v0 = face[0];
+                        const p0 = getP(v0);
+                        for(let k=1; k<face.length-1; k++) {
+                            const v1 = face[k];
+                            const v2 = face[k+1];
+                            this.debugRenderer.drawTriangle(p0, getP(v1), getP(v2), faceColor);
+                        }
+                    }
+                });
+            }
+
             // Draw Edge Highlights / Wireframe
             if (this.debugRenderer.lineCount < this.debugRenderer.maxLines) {
                 topo.faces.forEach((face: number[]) => {
                     for(let k=0; k<face.length; k++) {
                         const vA = face[k], vB = face[(k+1)%face.length];
-                        const pA = Vec3Utils.transformMat4({ x:verts[vA*3], y:verts[vA*3+1], z:verts[vA*3+2] }, worldMat, {x:0,y:0,z:0});
-                        const pB = Vec3Utils.transformMat4({ x:verts[vB*3], y:verts[vB*3+1], z:verts[vB*3+2] }, worldMat, {x:0,y:0,z:0});
+                        const pA = getP(vA);
+                        const pB = getP(vB);
                         
                         let color = isObjectMode ? colObjectSelection : (isVertexMode ? wireframeDim : wireframeDim);
                         
                         if (!isObjectMode && !isVertexMode) {
+                            // Edge selection check
                             const edgeKey = [vA, vB].sort((a,b)=>a-b).join('-');
                             if (this.selectionSystem.subSelection.edgeIds.has(edgeKey)) color = colSel; 
                         }
@@ -357,15 +415,9 @@ export class AssetViewportEngine implements IEngine {
             // Draw Vertex Overlay
             if (isVertexMode || this.uiConfig.showVertexOverlay) {
                 const baseSize = Math.max(3.0, this.uiConfig.vertexSize * 3.0);
-                const m0=worldMat[0], m1=worldMat[1], m2=worldMat[2], m12=worldMat[12];
-                const m4=worldMat[4], m5=worldMat[5], m6=worldMat[6], m13=worldMat[13];
-                const m8=worldMat[8], m9=worldMat[9], m10=worldMat[10], m14=worldMat[14];
 
                 for(let i=0; i<verts.length/3; i++) {
-                    const x = verts[i*3], y = verts[i*3+1], z = verts[i*3+2];
-                    const wx = m0*x + m4*y + m8*z + m12;
-                    const wy = m1*x + m5*y + m9*z + m13;
-                    const wz = m2*x + m6*y + m10*z + m14;
+                    const wx = worldVerts[i*3], wy = worldVerts[i*3+1], wz = worldVerts[i*3+2];
 
                     const isSelected = this.selectionSystem.subSelection.vertexIds.has(i);
                     const isHovered = this.selectionSystem.hoveredVertex?.entityId === entityId && this.selectionSystem.hoveredVertex?.index === i;
@@ -385,7 +437,7 @@ export class AssetViewportEngine implements IEngine {
                         border = 0.0; 
                     }
 
-                    this.debugRenderer.drawPointRaw(wx, wy, wz, r, g, b, size, border);
+                    this.debugRenderer.drawPointRaw(wx, wy, wz, r, g, b, 1.0, size, border);
                 }
             }
         });

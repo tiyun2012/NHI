@@ -297,11 +297,15 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
         // Selection / Picking
         if (e.button === 0 && uvBuffer && editingAsset) {
             let closest = -1; let minDst = 12;
-            for (let i = 0; i < uvBuffer.length / 2; i++) {
-                const px = transform.x + uvBuffer[i*2] * transform.k;
-                const py = transform.y + (1 - uvBuffer[i*2+1]) * transform.k;
-                const dst = Math.sqrt((mx - px)**2 + (my - py)**2);
-                if (dst < minDst) { minDst = dst; closest = i; }
+            
+            // 1. Try Vertex Picking First (if in Vertex/UV mode)
+            if (selectionMode === 'VERTEX' || selectionMode === 'UV') {
+                for (let i = 0; i < uvBuffer.length / 2; i++) {
+                    const px = transform.x + uvBuffer[i*2] * transform.k;
+                    const py = transform.y + (1 - uvBuffer[i*2+1]) * transform.k;
+                    const dst = Math.sqrt((mx - px)**2 + (my - py)**2);
+                    if (dst < minDst) { minDst = dst; closest = i; }
+                }
             }
 
             if (closest !== -1) {
@@ -311,7 +315,52 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
                 api.commands.selection.modifySubSelection(type, [closest], action);
                 setSelectedVertex(closest);
                 setIsDraggingVertex(true);
+            } else if (selectionMode === 'FACE') {
+                // 2. Try Face Picking (Point in Polygon)
+                let clickedFace = -1;
+                const faces = editingAsset.topology?.faces;
+                
+                if (faces) {
+                    // Iterate backwards to select top-most face if overlapping
+                    for (let i = faces.length - 1; i >= 0; i--) {
+                        const face = faces[i];
+                        // Point-in-polygon algorithm (Ray Casting)
+                        let inside = false;
+                        for (let j = 0, k = face.length - 1; j < face.length; k = j++) {
+                            const v1 = face[j];
+                            const v2 = face[k];
+                            
+                            const x1 = transform.x + uvBuffer[v1 * 2] * transform.k;
+                            const y1 = transform.y + (1 - uvBuffer[v1 * 2 + 1]) * transform.k;
+                            const x2 = transform.x + uvBuffer[v2 * 2] * transform.k;
+                            const y2 = transform.y + (1 - uvBuffer[v2 * 2 + 1]) * transform.k;
+                            
+                            const intersect = ((y1 > my) !== (y2 > my)) && (mx < (x2 - x1) * (my - y1) / (y2 - y1) + x1);
+                            if (intersect) inside = !inside;
+                        }
+                        
+                        if (inside) {
+                            clickedFace = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (clickedFace !== -1) {
+                    const action = e.shiftKey ? 'TOGGLE' : 'SET';
+                    api.commands.selection.modifySubSelection('FACE', [clickedFace], action);
+                } else {
+                    // Start Box Select if nothing hit
+                    setSelectionBox({
+                        startX: mx,
+                        startY: my,
+                        currentX: mx,
+                        currentY: my,
+                        isSelecting: true
+                    });
+                }
             } else {
+                // Default to box select for EDGE/VERTEX if no direct hit
                 setSelectionBox({
                     startX: mx,
                     startY: my,
@@ -411,6 +460,7 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
                 else if (selectionMode === 'EDGE') api.commands.selection.modifySubSelection('EDGE', capturedEdges, action);
                 else if (selectionMode === 'FACE') api.commands.selection.modifySubSelection('FACE', capturedFaces, action);
             } else if (!e.shiftKey) {
+                // If it was a tiny box (click), and no specific logic handled it in mouseDown (e.g. edge mode click), clear selection
                 const type = selectionMode === 'UV' ? 'UV' : 'VERTEX';
                 api.commands.selection.modifySubSelection(type, [], 'SET');
                 setSelectedVertex(-1);

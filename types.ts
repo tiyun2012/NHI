@@ -35,12 +35,23 @@ export interface IEngine {
     currentHeight: number;
     meshComponentMode: MeshComponentMode;
     softSelectionRadius: number;
+    
+    // Selection
+    setSelected(ids: string[]): void;
+    
+    // Soft Selection
     recalculateSoftSelection(trigger?: boolean): void;
     clearDeformation(): void;
+    
+    // UI Notification
     notifyUI(): void;
+    
+    // Sculpting / Deformation
     startVertexDrag(entityId: string): void;
     updateVertexDrag(entityId: string, delta: Vector3): void;
     endVertexDrag(): void;
+    
+    // Scene
     loadSceneFromAsset(assetId: string): void; // Added for ProjectPanel interaction
 }
 
