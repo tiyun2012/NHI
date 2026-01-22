@@ -493,7 +493,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       if (!assetId) return;
       engine.setPreviewMesh(assetId);
       engine.syncTransforms(false);
-      resetCameraRef.current?.();
+      
+      if (resetCameraRef.current) {
+          resetCameraRef.current();
+      }
   }, [assetId, engine]);
 
   // Interaction API
@@ -622,10 +625,10 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       return {
           commands: commands as EngineCommands,
           queries: queries as EngineQueries,
-          subscribe: ((event: string, cb: (payload: any) => void) => {
+          subscribe: (event: string, cb: (payload: any) => void) => {
               engine.events.on(event, cb);
               return () => engine.events.off(event, cb);
-          }) as any
+          }
       };
   }, [localInteractionApi, assetId, engine, localFocusedWidget]);
 

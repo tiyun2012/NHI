@@ -1,30 +1,35 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Icon } from './Icon';
 import { consoleService, LogEntry, LogType } from '@/engine/Console';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
 import { engineInstance } from '@/engine/engine';
 
+type ConsoleTab = 'LOGS' | 'HISTORY';
+
+const NOISY_PATTERNS = [
+    'ui.setFocusedWidget',
+    'ui.notify',
+    'selection.highlight'
+];
+
 export const ConsolePanel: React.FC = () => {
     const api = useEngineAPI();
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [logFilter, setLogFilter] = useState<'ALL' | 'ERROR' | 'WARN' | 'INFO' | 'CMD'>('ALL');
-    const [logSearch, setLogSearch] = useState('');
-    const logsEndRef = useRef<HTMLDivElement>(null);
+    const [activeTab, setActiveTab] = useState<ConsoleTab>('LOGS');
+    const [filterError, setFilterError] = useState(true);
+    const [filterWarn, setFilterWarn] = useState(true);
+    const [filterInfo, setFilterInfo] = useState(true);
+    const [hideNoise, setHideNoise] = useState(true); // Default to hiding noise
+    
+    // Auto-scroll logic
+    const [autoScroll, setAutoScroll] = useState(true);
+    const listRef = useRef<HTMLDivElement>(null);
 
     // Command Input State
     const [command, setCommand] = useState('');
     const [history, setHistory] = useState<string[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
-
-    const filteredLogs = logs.filter(l => {
-        if (logFilter === 'ERROR' && l.type !== 'error') return false;
-        if (logFilter === 'WARN' && l.type !== 'warn') return false;
-        if (logFilter === 'CMD' && l.type !== 'command') return false;
-        if (logFilter === 'INFO' && (l.type === 'error' || l.type === 'warn' || l.type === 'command')) return false;
-        if (logSearch && !l.message.toLowerCase().includes(logSearch.toLowerCase())) return false;
-        return true;
-    });
 
     useEffect(() => {
         const unsubscribe = consoleService.subscribe(() => {
@@ -34,11 +39,47 @@ export const ConsolePanel: React.FC = () => {
         return unsubscribe;
     }, []);
 
-    useEffect(() => {
-        if (logsEndRef.current) {
-            logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    // Smart Scrolling: Only auto-scroll if we were already near bottom or autoScroll is forced
+    useLayoutEffect(() => {
+        const list = listRef.current;
+        if (!list) return;
+
+        if (autoScroll) {
+            list.scrollTop = list.scrollHeight;
         }
-    }, [logs, logFilter]);
+    }, [logs, autoScroll, activeTab, filterError, filterWarn, filterInfo, hideNoise]);
+
+    const handleScroll = () => {
+        const list = listRef.current;
+        if (!list) return;
+        const diff = list.scrollHeight - list.scrollTop - list.clientHeight;
+        // If user scrolls up significantly (more than 10px), disable auto-scroll
+        if (diff > 10) {
+            setAutoScroll(false);
+        } else {
+            setAutoScroll(true);
+        }
+    };
+
+    const getFilteredLogs = () => {
+        if (activeTab === 'HISTORY') {
+            return logs.filter(l => l.type === 'command' || (l.source === 'Result' || l.source === 'API'));
+        }
+        return logs.filter(l => {
+            if (l.type === 'error' && !filterError) return false;
+            if (l.type === 'warn' && !filterWarn) return false;
+            if (l.type === 'info' && !filterInfo && l.source !== 'Result') return false; 
+            
+            // Noise Filter
+            if (hideNoise && l.type === 'command') {
+                if (NOISY_PATTERNS.some(p => l.message.includes(p))) return false;
+            }
+            
+            return true;
+        });
+    };
+
+    const filteredLogs = getFilteredLogs();
 
     const executeCommand = () => {
         if (!command.trim()) return;
@@ -49,7 +90,6 @@ export const ConsolePanel: React.FC = () => {
 
         // 2. Update History
         setHistory(prev => {
-            // Prevent duplicate adjacent entries
             if (prev.length > 0 && prev[prev.length - 1] === cmd) return prev;
             return [...prev, cmd];
         });
@@ -58,7 +98,7 @@ export const ConsolePanel: React.FC = () => {
 
         // 3. Execute
         try {
-            // We create a function wrapper to inject 'api' and 'engine' into the scope
+            // Inject 'api' and 'engine' for cheat-like access
             // eslint-disable-next-line no-new-func
             const run = new Function('api', 'engine', `return (function() { return eval(${JSON.stringify(cmd)}); })()`);
             
@@ -68,16 +108,17 @@ export const ConsolePanel: React.FC = () => {
                 let output = String(result);
                 if (typeof result === 'object' && result !== null) {
                     try {
-                        // Attempt to show something more useful than [object Object]
                         if (Array.isArray(result)) {
                             output = `Array(${result.length})`;
                         } else {
+                            // Try formatting for nicer reading
                             const keys = Object.keys(result);
-                            output = keys.length > 0 ? `{ ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''} }` : '{}';
-                            // If it has a custom toString, use it (e.g. Vector3)
+                            output = keys.length > 0 
+                                ? `{ ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''} }`
+                                : '{}';
                             if (result.toString !== Object.prototype.toString) output = result.toString();
                         }
-                    } catch (e) { /* ignore serialization errors */ }
+                    } catch (e) { /* ignore */ }
                 }
                 consoleService.info(output, 'Result');
             }
@@ -111,11 +152,7 @@ export const ConsolePanel: React.FC = () => {
     };
 
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).then(() => {
-            // Optional: visual feedback
-        }).catch(err => {
-            console.error('Failed to copy: ', err);
-        });
+        navigator.clipboard.writeText(text).catch(console.error);
     };
 
     const renderLogIcon = (type: LogType) => {
@@ -128,87 +165,120 @@ export const ConsolePanel: React.FC = () => {
         }
     };
 
-    const getLogColor = (type: LogType) => {
-        switch(type) {
+    const getLogColor = (log: LogEntry) => {
+        if (log.source === 'Result') return 'text-text-secondary italic';
+        switch(log.type) {
             case 'error': return 'text-red-400';
             case 'warn': return 'text-yellow-400';
             case 'success': return 'text-emerald-400';
-            case 'command': return 'text-cyan-400 font-mono';
+            case 'command': return 'text-cyan-400 font-bold';
             default: return 'text-text-primary';
         }
     };
 
     return (
         <div className="h-full bg-panel flex flex-col font-sans border-t border-black/20">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between bg-panel-header px-2 py-1 border-b border-black/20 h-9 shrink-0">
-                <div className="flex gap-2">
-                    <div className="flex items-center gap-2 text-[10px] font-mono opacity-70 ml-2">
-                        {logs.filter(l => l.type === 'error').length > 0 && (
-                            <span className="text-red-400 flex items-center gap-1"><Icon name="AlertCircle" size={10} /> {logs.filter(l => l.type === 'error').length}</span>
-                        )}
-                        {logs.filter(l => l.type === 'warn').length > 0 && (
-                            <span className="text-yellow-400 flex items-center gap-1"><Icon name="AlertTriangle" size={10} /> {logs.filter(l => l.type === 'warn').length}</span>
-                        )}
-                    </div>
+            {/* Header / Tabs */}
+            <div className="flex items-center justify-between bg-panel-header px-2 border-b border-black/20 h-9 shrink-0">
+                <div className="flex gap-1 h-full pt-1">
+                    <button 
+                        onClick={() => { setActiveTab('LOGS'); setAutoScroll(true); }}
+                        className={`px-3 flex items-center gap-2 text-[10px] font-bold rounded-t transition-colors ${activeTab === 'LOGS' ? 'bg-[#1a1a1a] text-white border-t border-x border-white/5' : 'text-text-secondary hover:text-white'}`}
+                    >
+                        <Icon name="List" size={12} /> All Logs
+                    </button>
+                    <button 
+                        onClick={() => { setActiveTab('HISTORY'); setAutoScroll(true); }}
+                        className={`px-3 flex items-center gap-2 text-[10px] font-bold rounded-t transition-colors ${activeTab === 'HISTORY' ? 'bg-[#1a1a1a] text-white border-t border-x border-white/5' : 'text-text-secondary hover:text-white'}`}
+                    >
+                        <Icon name="Terminal" size={12} /> Command History
+                    </button>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="flex bg-black/40 rounded p-0.5 border border-white/5">
-                        <button onClick={() => setLogFilter('ALL')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'ALL' ? 'bg-white/20 text-white' : 'text-text-secondary hover:text-white'}`}>All</button>
-                        <button onClick={() => setLogFilter('CMD')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'CMD' ? 'bg-cyan-500/20 text-cyan-400' : 'text-text-secondary hover:text-white'}`}>Cmds</button>
-                        <button onClick={() => setLogFilter('ERROR')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'ERROR' ? 'bg-red-500/20 text-red-400' : 'text-text-secondary hover:text-white'}`}>Errors</button>
-                        <button onClick={() => setLogFilter('WARN')} className={`px-2 py-0.5 text-[10px] rounded transition-colors ${logFilter === 'WARN' ? 'bg-yellow-500/20 text-yellow-400' : 'text-text-secondary hover:text-white'}`}>Warnings</button>
-                    </div>
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Filter..."
-                            className="bg-input-bg text-[10px] py-1 px-2 rounded border border-transparent focus:border-accent text-white w-24 outline-none transition-all focus:w-32"
-                            value={logSearch}
-                            onChange={(e) => setLogSearch(e.target.value)}
-                        />
-                    </div>
-                    <button
+                
+                <div className="flex items-center gap-2 text-[10px]">
+                    <button 
                         onClick={() => consoleService.clear()}
-                        className="text-xs px-2 py-1 hover:bg-white/10 rounded text-text-secondary hover:text-white border border-white/5 transition-colors"
+                        className="px-2 py-1 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-colors flex items-center gap-1"
                         title="Clear Console"
                     >
-                        Clear
+                        <Icon name="Trash2" size={12} /> Clear
                     </button>
                 </div>
             </div>
 
-            {/* Logs List */}
-            <div className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar select-text">
-                <div className="font-mono text-xs space-y-0.5 pb-2">
-                    {filteredLogs.length === 0 && <div className="text-text-secondary italic p-2 opacity-50 text-[10px]">No logs to display.</div>}
-                    {filteredLogs.map((log) => (
-                        <div key={log.id} className="flex items-start gap-2 py-1 px-2 hover:bg-white/5 border-b border-white/5 group transition-colors relative">
-                            <div className="mt-0.5 shrink-0 opacity-70">
-                                {renderLogIcon(log.type)}
-                            </div>
-                            <div className="flex-1 break-all pr-6">
-                                <span className="text-[10px] text-white/30 mr-2 select-none">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                                {log.source && <span className="text-[10px] text-white/50 mr-2 uppercase font-bold tracking-wider select-none">[{log.source}]</span>}
-                                <span className={getLogColor(log.type)}>
-                                    {log.message}
-                                </span>
-                                {log.count > 1 && (
-                                    <span className="ml-2 bg-white/10 text-white px-1.5 rounded-full text-[9px] font-bold select-none">{log.count}</span>
-                                )}
-                            </div>
-                            {/* Copy Button */}
-                            <button 
-                                onClick={() => copyToClipboard(log.message)}
-                                className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white"
-                                title="Copy"
-                            >
-                                <Icon name="Copy" size={12} />
-                            </button>
-                        </div>
-                    ))}
-                    <div ref={logsEndRef} />
+            {/* Filters (Visible only in LOGS tab) */}
+            {activeTab === 'LOGS' && (
+                <div className="flex items-center gap-2 px-2 py-1 bg-[#151515] border-b border-white/5">
+                    <button 
+                        onClick={() => setFilterError(!filterError)}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterError ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                    >
+                        <Icon name="AlertCircle" size={10} /> Errors
+                    </button>
+                    <button 
+                        onClick={() => setFilterWarn(!filterWarn)}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterWarn ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                    >
+                        <Icon name="AlertTriangle" size={10} /> Warnings
+                    </button>
+                    <button 
+                        onClick={() => setFilterInfo(!filterInfo)}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterInfo ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                    >
+                        <Icon name="Info" size={10} /> Info
+                    </button>
+                    
+                    <div className="h-4 w-px bg-white/10 mx-1"></div>
+                    
+                    <button 
+                        onClick={() => setHideNoise(!hideNoise)}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${hideNoise ? 'bg-white/10 text-white border-white/20' : 'text-text-secondary border-transparent opacity-50'}`}
+                        title="Hide noisy API calls like setFocusedWidget"
+                    >
+                        <Icon name="Filter" size={10} /> Hide Noise
+                    </button>
+
+                    {!autoScroll && (
+                        <button 
+                            onClick={() => setAutoScroll(true)}
+                            className="ml-auto px-2 py-0.5 rounded text-[9px] bg-accent text-white flex items-center gap-1 animate-pulse"
+                        >
+                            <Icon name="ArrowDown" size={10} /> Resume Scroll
+                        </button>
+                    )}
                 </div>
+            )}
+
+            {/* Logs List */}
+            <div 
+                ref={listRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar select-text font-mono text-xs"
+            >
+                {filteredLogs.length === 0 && <div className="text-text-secondary italic p-4 text-center opacity-30">No logs to display</div>}
+                
+                {filteredLogs.map((log) => (
+                    <div key={log.id} className="flex items-start gap-2 py-1 px-1 hover:bg-white/5 border-b border-white/5 group relative break-all">
+                        <div className="mt-0.5 shrink-0 opacity-70">
+                            {renderLogIcon(log.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <span className="text-[9px] text-white/20 mr-2 select-none font-sans">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                            {log.source && <span className="text-[9px] text-white/40 mr-2 uppercase font-bold tracking-wider select-none font-sans">[{log.source}]</span>}
+                            <span className={getLogColor(log)}>{log.message}</span>
+                            {log.count > 1 && (
+                                <span className="ml-2 bg-white/20 text-white px-1.5 rounded-full text-[9px] font-bold select-none">{log.count}</span>
+                            )}
+                        </div>
+                        <button 
+                            onClick={() => copyToClipboard(log.message)}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-opacity absolute right-2 top-0"
+                            title="Copy"
+                        >
+                            <Icon name="Copy" size={12} />
+                        </button>
+                    </div>
+                ))}
             </div>
 
             {/* Command Input */}
@@ -217,13 +287,17 @@ export const ConsolePanel: React.FC = () => {
                     <Icon name="ChevronRight" size={14} className="text-accent shrink-0" />
                     <input 
                         className="flex-1 bg-transparent border-none outline-none text-xs font-mono text-white placeholder:text-white/20 h-6"
-                        placeholder="Enter Javascript... (Use 'api' or 'engine')"
+                        placeholder="Enter JS... (Use 'api' or 'engine' or 'ti3d')"
                         value={command}
                         onChange={e => setCommand(e.target.value)}
                         onKeyDown={handleKeyDown}
                         spellCheck={false}
                         autoComplete="off"
                     />
+                </div>
+                <div className="text-[9px] text-text-secondary mt-1 px-1 flex justify-between">
+                    <span>Use <code className="text-white">api.commands.*</code> or <code className="text-white">engine.*</code></span>
+                    <span>Up/Down for History</span>
                 </div>
             </div>
         </div>

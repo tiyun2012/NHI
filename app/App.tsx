@@ -434,6 +434,12 @@ const App: React.FC = () => {
 
     const onNodeDataChangeRef = useRef<((nodeId: string, key: string, value: any) => void) | null>(null);
 
+    // EXPOSE GLOBALS FOR CONSOLE CHEATS
+    useEffect(() => {
+        (window as any).ti3d = { engine: engineInstance, api };
+        console.log("Global access enabled: window.ti3d.engine, window.ti3d.api");
+    }, [api]);
+
     useEffect(() => {
         const update = () => {
             setEntities(api.queries.scene.getEntities());
