@@ -571,7 +571,31 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       } as any;
 
       const queries: Partial<EngineQueries> = {
-          selection: createSelectionQueries(engine),
+          selection: {
+              getSelectedIds: () => {
+                  const indices = engine.selectionSystem.selectedIndices;
+                  const ids: string[] = [];
+                  indices.forEach((idx: number) => {
+                      const id = engine.ecs.store.ids[idx];
+                      if (id) ids.push(id);
+                  });
+                  return ids;
+              },
+              getSubSelection: () => engine.selectionSystem.subSelection,
+              getSubSelectionStats: () => {
+                  const sub = engine.selectionSystem.subSelection;
+                  const lastVertex = sub.vertexIds.size ? Array.from(sub.vertexIds.values()).pop() ?? null : null;
+                  const lastFace = sub.faceIds.size ? Array.from(sub.faceIds.values()).pop() ?? null : null;
+                  return {
+                      vertexCount: sub.vertexIds.size,
+                      edgeCount: sub.edgeIds.size,
+                      faceCount: sub.faceIds.size,
+                      uvCount: sub.uvIds.size,
+                      lastVertex,
+                      lastFace
+                  };
+              }
+          },
           mesh: {
               getAssetByEntity: (eid) => {
                   if (engine.entityId === eid) {

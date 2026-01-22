@@ -110,6 +110,14 @@ export const ConsolePanel: React.FC = () => {
         }
     };
 
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text).then(() => {
+            // Optional: visual feedback
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+        });
+    };
+
     const renderLogIcon = (type: LogType) => {
         switch(type) {
             case 'error': return <Icon name="AlertCircle" size={14} className="text-red-500" />;
@@ -171,15 +179,15 @@ export const ConsolePanel: React.FC = () => {
             </div>
 
             {/* Logs List */}
-            <div className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar select-text">
                 <div className="font-mono text-xs space-y-0.5 pb-2">
                     {filteredLogs.length === 0 && <div className="text-text-secondary italic p-2 opacity-50 text-[10px]">No logs to display.</div>}
                     {filteredLogs.map((log) => (
-                        <div key={log.id} className="flex items-start gap-2 py-1 px-2 hover:bg-white/5 border-b border-white/5 group transition-colors">
+                        <div key={log.id} className="flex items-start gap-2 py-1 px-2 hover:bg-white/5 border-b border-white/5 group transition-colors relative">
                             <div className="mt-0.5 shrink-0 opacity-70">
                                 {renderLogIcon(log.type)}
                             </div>
-                            <div className="flex-1 break-all">
+                            <div className="flex-1 break-all pr-6">
                                 <span className="text-[10px] text-white/30 mr-2 select-none">{new Date(log.timestamp).toLocaleTimeString()}</span>
                                 {log.source && <span className="text-[10px] text-white/50 mr-2 uppercase font-bold tracking-wider select-none">[{log.source}]</span>}
                                 <span className={getLogColor(log.type)}>
@@ -189,6 +197,14 @@ export const ConsolePanel: React.FC = () => {
                                     <span className="ml-2 bg-white/10 text-white px-1.5 rounded-full text-[9px] font-bold select-none">{log.count}</span>
                                 )}
                             </div>
+                            {/* Copy Button */}
+                            <button 
+                                onClick={() => copyToClipboard(log.message)}
+                                className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white"
+                                title="Copy"
+                            >
+                                <Icon name="Copy" size={12} />
+                            </button>
                         </div>
                     ))}
                     <div ref={logsEndRef} />
