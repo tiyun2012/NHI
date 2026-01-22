@@ -1,21 +1,14 @@
+
 // Add missing React import for ComponentType namespace
 import React from 'react';
 import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset, Entity, PerformanceMetrics } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';
+import type { SelectionCommands, SelectionQueries } from '@/engine/selection';
 import type { UIWindow } from '@/editor/registries/UIRegistry';
 
 export interface EngineCommands {
-  selection: {
-    setSelected(ids: readonly string[]): void;
-    clear(): void;
-    modifySubSelection(type: 'VERTEX' | 'EDGE' | 'FACE' | 'UV', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE'): void;
-    clearSubSelection(): void;
-    selectLoop(mode: MeshComponentMode): void;
-    selectInRect(rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE'): void;
-    /** Focus camera on current selection center */
-    focus(): void;
-  };
+  selection: SelectionCommands;
   simulation: {
     setMode(mode: SimulationMode): void;
   };
@@ -79,24 +72,7 @@ export interface EngineCommands {
 }
 
 export interface EngineQueries {
-  selection: {
-    getSelectedIds(): string[];
-    /** Prefer getSubSelectionStats in UI; getSubSelection returns engine internals. */
-    getSubSelection(): { vertexIds: Set<number>; edgeIds: Set<string>; faceIds: Set<number>; uvIds: Set<number> };
-    getSubSelectionStats(): {
-      vertexCount: number;
-      edgeCount: number;
-      faceCount: number;
-      uvCount: number;
-      lastVertex: number | null;
-      lastFace: number | null;
-    };
-  };
-  simulation: {
-    getMode(): SimulationMode;
-    isPlaying(): boolean;
-    getMetrics(): PerformanceMetrics;
-  };
+  selection: SelectionQueries;
   scene: {
     getEntities(): Entity[];
     getEntityName(id: string): string | null;
@@ -114,6 +90,11 @@ export interface EngineQueries {
   };
   ui: {
     getFocusedWidget(): string | null;
+  };
+  simulation: {
+    getMode(): SimulationMode;
+    isPlaying(): boolean;
+    getMetrics(): PerformanceMetrics;
   };
 }
 

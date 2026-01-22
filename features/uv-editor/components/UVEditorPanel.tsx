@@ -182,10 +182,14 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     // --- Local API for Pie Menu ---
     const localApi = useMemo<InteractionAPI>(() => ({
         selection: {
-            selectLoop: (mode) => api.commands.selection.selectLoop(mode),
+            selectLoop: (mode) => {
+            const resolved = (selectionMode === "UV" && mode === "VERTEX") ? "UV" : mode;
+            api.commands.selection.selectLoop(resolved);
+        },
             modifySubSelection: (type, ids, action) => api.commands.selection.modifySubSelection(type, ids, action),
             setSelected: (ids) => api.commands.selection.setSelected(ids),
             clear: () => api.commands.selection.clearSubSelection(),
+            clearSubSelection: () => api.commands.selection.clearSubSelection(),
             selectInRect: (rect, mode, action) => api.commands.selection.selectInRect(rect, mode, action),
             focus: () => focusOnSelection()
         },
@@ -206,7 +210,7 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
             connectComponents: () => api.commands.modeling.connectComponents(),
             deleteSelectedFaces: () => api.commands.modeling.deleteSelectedFaces(),
         }
-    }), [api, focusOnSelection]);
+    }), [api, focusOnSelection, selectionMode]);
 
     // --- Pie Menu Hook ---
     const { 
@@ -217,6 +221,7 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     } = usePieMenuInteraction({
         sceneGraph: ctx?.sceneGraph as any,
         selectedIds: selectedEntityIds,
+        currentMode: selectionMode,
         onSelect: (ids) => api.commands.selection.setSelected(ids),
         setTool: (t) => ctx?.setTool(t),
         setMeshComponentMode: (m) => {

@@ -2,12 +2,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icon';
 import { consoleService, LogEntry, LogType } from '@/engine/Console';
+import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { engineInstance } from '@/engine/engine';
 
 export const ConsolePanel: React.FC = () => {
+    const api = useEngineAPI();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [logFilter, setLogFilter] = useState<'ALL' | 'ERROR' | 'WARN' | 'INFO' | 'CMD'>('ALL');
     const [logSearch, setLogSearch] = useState('');
     const logsEndRef = useRef<HTMLDivElement>(null);
+
+    // Command Input State
+    const [command, setCommand] = useState('');
+    const [history, setHistory] = useState<string[]>([]);
+    const [historyIndex, setHistoryIndex] = useState(-1);
 
     const filteredLogs = logs.filter(l => {
         if (logFilter === 'ERROR' && l.type !== 'error') return false;
@@ -32,6 +40,76 @@ export const ConsolePanel: React.FC = () => {
         }
     }, [logs, logFilter]);
 
+    const executeCommand = () => {
+        if (!command.trim()) return;
+        const cmd = command.trim();
+
+        // 1. Log Command
+        consoleService.cmd(cmd);
+
+        // 2. Update History
+        setHistory(prev => {
+            // Prevent duplicate adjacent entries
+            if (prev.length > 0 && prev[prev.length - 1] === cmd) return prev;
+            return [...prev, cmd];
+        });
+        setHistoryIndex(-1);
+        setCommand('');
+
+        // 3. Execute
+        try {
+            // We create a function wrapper to inject 'api' and 'engine' into the scope
+            // eslint-disable-next-line no-new-func
+            const run = new Function('api', 'engine', `return (function() { return eval(${JSON.stringify(cmd)}); })()`);
+            
+            const result = run(api, engineInstance);
+            
+            if (result !== undefined) {
+                let output = String(result);
+                if (typeof result === 'object' && result !== null) {
+                    try {
+                        // Attempt to show something more useful than [object Object]
+                        if (Array.isArray(result)) {
+                            output = `Array(${result.length})`;
+                        } else {
+                            const keys = Object.keys(result);
+                            output = keys.length > 0 ? `{ ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''} }` : '{}';
+                            // If it has a custom toString, use it (e.g. Vector3)
+                            if (result.toString !== Object.prototype.toString) output = result.toString();
+                        }
+                    } catch (e) { /* ignore serialization errors */ }
+                }
+                consoleService.info(output, 'Result');
+            }
+        } catch (e: any) {
+            consoleService.error(e.message || String(e), 'Execution Error');
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            executeCommand();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (history.length === 0) return;
+            const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+            setHistoryIndex(newIndex);
+            setCommand(history[newIndex]);
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndex === -1) return;
+            if (historyIndex === history.length - 1) {
+                setHistoryIndex(-1);
+                setCommand('');
+            } else {
+                const newIndex = historyIndex + 1;
+                setHistoryIndex(newIndex);
+                setCommand(history[newIndex]);
+            }
+        }
+    };
+
     const renderLogIcon = (type: LogType) => {
         switch(type) {
             case 'error': return <Icon name="AlertCircle" size={14} className="text-red-500" />;
@@ -54,6 +132,7 @@ export const ConsolePanel: React.FC = () => {
 
     return (
         <div className="h-full bg-panel flex flex-col font-sans border-t border-black/20">
+            {/* Toolbar */}
             <div className="flex items-center justify-between bg-panel-header px-2 py-1 border-b border-black/20 h-9 shrink-0">
                 <div className="flex gap-2">
                     <div className="flex items-center gap-2 text-[10px] font-mono opacity-70 ml-2">
@@ -91,6 +170,7 @@ export const ConsolePanel: React.FC = () => {
                 </div>
             </div>
 
+            {/* Logs List */}
             <div className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar">
                 <div className="font-mono text-xs space-y-0.5 pb-2">
                     {filteredLogs.length === 0 && <div className="text-text-secondary italic p-2 opacity-50 text-[10px]">No logs to display.</div>}
@@ -112,6 +192,22 @@ export const ConsolePanel: React.FC = () => {
                         </div>
                     ))}
                     <div ref={logsEndRef} />
+                </div>
+            </div>
+
+            {/* Command Input */}
+            <div className="p-2 bg-panel-header border-t border-white/5 shrink-0">
+                <div className="flex items-center gap-2 bg-black/40 rounded px-2 py-1 border border-white/10 focus-within:border-accent transition-colors shadow-inner">
+                    <Icon name="ChevronRight" size={14} className="text-accent shrink-0" />
+                    <input 
+                        className="flex-1 bg-transparent border-none outline-none text-xs font-mono text-white placeholder:text-white/20 h-6"
+                        placeholder="Enter Javascript... (Use 'api' or 'engine')"
+                        value={command}
+                        onChange={e => setCommand(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        spellCheck={false}
+                        autoComplete="off"
+                    />
                 </div>
             </div>
         </div>

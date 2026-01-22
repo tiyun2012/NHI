@@ -16,6 +16,7 @@ import { Mat4Utils, Vec3Utils, AABBUtils } from '@/engine/math';
 import { MeshComponentMode, StaticMeshAsset, SkeletalMeshAsset, TransformSpace, SnapSettings } from '@/types';
 import { consoleService } from '@/engine/Console';
 import { EngineAPI, EngineCommands, EngineQueries } from '@/engine/api/types';
+import { createSelectionCommands, createSelectionQueries } from '@/engine/selection';
 import { EngineProvider, useEngineAPI } from '@/engine/api/EngineProvider';
 
 import { PieMenu } from './PieMenu';
@@ -158,6 +159,7 @@ const StaticMeshViewport: React.FC<{
     const { pieMenuState, openPieMenu, closePieMenu, handlePieAction } = usePieMenuInteraction({
         sceneGraph: engine.sceneGraph as any,
         selectedIds: engine.entityId ? [engine.entityId] : [],
+        currentMode: meshComponentMode,
         onSelect: () => {},
         setTool,
         setMeshComponentMode,
@@ -497,35 +499,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   // Interaction API
   const localInteractionApi = useMemo<InteractionAPI>(() => {
       const baseApi: InteractionAPI = {
-          selection: {
-              selectLoop: (m) => engine.selectLoop(m),
-              modifySubSelection: (type, ids, action) => {
-                  engine.selectionSystem.modifySubSelection(type, ids, action);
-                  engine.notifyUI();
-              },
-              setSelected: (ids) => {
-                  engine.setSelected(ids); // Use engine.setSelected to ensure skeleton update
-                  engine.notifyUI();
-              },
-              clear: () => {
-                  engine.selectionSystem.setSelected([]);
-                  engine.notifyUI();
-              },
-              selectInRect: (rect, mode, action) => {
-                  if (mode === 'VERTEX' || mode === 'UV') {
-                      engine.clearDeformation();
-                      const hits = engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
-                      const type = mode === 'UV' ? 'UV' : 'VERTEX';
-                      engine.selectionSystem.modifySubSelection(type, hits, action === 'ADD' ? 'ADD' : 'SET');
-                      engine.notifyUI();
-                  } else if (mode === 'OBJECT') {
-                      const hits = engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
-                      engine.setSelected(hits); // Use engine.setSelected
-                      engine.notifyUI();
-                  }
-              },
-              focus: () => engine.events.emit('selection:focus', undefined)
-          },
+          selection: createSelectionCommands(engine, { emit: (e, p) => engine.events.emit(e, p), notifyUI: () => engine.notifyUI() }),
           mesh: {
               setComponentMode: (m) => {
                   engine.meshComponentMode = m;
@@ -555,15 +529,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
   // Engine API Adapter
   const localEngineApi = useMemo<EngineAPI>(() => {
       const commands: Partial<EngineCommands> = {
-          selection: {
-              setSelected: localInteractionApi.selection.setSelected,
-              clear: localInteractionApi.selection.clear,
-              modifySubSelection: localInteractionApi.selection.modifySubSelection,
-              clearSubSelection: localInteractionApi.selection.clear,
-              selectLoop: localInteractionApi.selection.selectLoop,
-              selectInRect: localInteractionApi.selection.selectInRect,
-              focus: localInteractionApi.selection.focus
-          },
+          selection: createSelectionCommands(engine, { emit: (e, p) => engine.events.emit(e, p), notifyUI: () => engine.notifyUI() }),
           mesh: {
               setComponentMode: (m) => localInteractionApi.mesh.setComponentMode(m),
               updateAssetGeometry: (aId, geom) => {
@@ -605,21 +571,7 @@ export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => 
       } as any;
 
       const queries: Partial<EngineQueries> = {
-          selection: {
-              getSelectedIds: () => engine.selectionSystem.selectedIndices.size ? Array.from(engine.selectionSystem.selectedIndices).map(String) : [],
-              getSubSelection: () => engine.selectionSystem.subSelection || { vertexIds: new Set(), edgeIds: new Set(), faceIds: new Set(), uvIds: new Set() },
-              getSubSelectionStats: () => {
-                  const sub = engine.selectionSystem.subSelection;
-                  return {
-                      vertexCount: sub?.vertexIds.size || 0,
-                      edgeCount: sub?.edgeIds.size || 0,
-                      faceCount: sub?.faceIds.size || 0,
-                      uvCount: sub?.uvIds.size || 0,
-                      lastVertex: sub?.vertexIds.size ? Array.from(sub.vertexIds).pop() ?? null : null,
-                      lastFace: sub?.faceIds.size ? Array.from(sub.faceIds).pop() ?? null : null,
-                  };
-              }
-          },
+          selection: createSelectionQueries(engine),
           mesh: {
               getAssetByEntity: (eid) => {
                   if (engine.entityId === eid) {

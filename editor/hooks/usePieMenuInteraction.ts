@@ -1,20 +1,13 @@
 
 import { useState, useCallback } from 'react';
-import { engineInstance } from '@/engine/engine';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { ToolType, MeshComponentMode } from '@/types';
+import type { SelectionCommands } from '@/engine/selection';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { engineInstance } from '@/engine/engine';
 
 export interface InteractionAPI {
-    selection: {
-        selectLoop: (mode: MeshComponentMode) => void;
-        modifySubSelection: (type: 'VERTEX' | 'EDGE' | 'FACE', ids: (number | string)[], action: 'SET' | 'ADD' | 'REMOVE' | 'TOGGLE') => void;
-        setSelected: (ids: string[]) => void;
-        clear: () => void;
-        selectInRect: (rect: { x: number; y: number; w: number; h: number }, mode: MeshComponentMode, action: 'SET' | 'ADD' | 'REMOVE') => void;
-        // Added focus method to the selection command interface for API consistency and to fix StaticMeshEditor type errors
-        focus: () => void;
-    };
+    selection: Pick<SelectionCommands, 'selectLoop' | 'modifySubSelection' | 'setSelected' | 'clear' | 'clearSubSelection' | 'selectInRect' | 'focus'>;
     mesh: {
         setComponentMode: (mode: MeshComponentMode) => void;
     };
@@ -44,6 +37,7 @@ export interface InteractionAPI {
 interface UsePieMenuProps {
     sceneGraph: SceneGraph;
     selectedIds: string[];
+    currentMode: MeshComponentMode;
     onSelect: (ids: string[]) => void;
     setTool: (tool: ToolType) => void;
     setMeshComponentMode: (mode: MeshComponentMode) => void;
@@ -55,6 +49,7 @@ interface UsePieMenuProps {
 export const usePieMenuInteraction = ({
     sceneGraph,
     selectedIds,
+    currentMode,
     onSelect,
     setTool,
     setMeshComponentMode,
@@ -80,9 +75,10 @@ export const usePieMenuInteraction = ({
             // but for loop selection specifically, it relies on global engine.selectionSystem currently.
             // If using a local engine, the API implementation should handle the redirection.
             
-            setMeshComponentMode(mode);
-            api.mesh.setComponentMode(mode);
-            api.selection.selectLoop(mode);
+            const effectiveMode: MeshComponentMode = (currentMode === 'UV' && mode === 'VERTEX') ? 'UV' : mode;
+            setMeshComponentMode(effectiveMode);
+            api.mesh.setComponentMode(effectiveMode);
+            api.selection.selectLoop(effectiveMode);
         };
 
         // Tools
@@ -119,7 +115,7 @@ export const usePieMenuInteraction = ({
         if (action === 'loop_face') handleLoopSelect('FACE');
 
         closePieMenu();
-    }, [selectedIds, sceneGraph, onSelect, setTool, setMeshComponentMode, handleFocus, handleModeSelect, closePieMenu, api]);
+    }, [selectedIds, currentMode, sceneGraph, onSelect, setTool, setMeshComponentMode, handleFocus, handleModeSelect, closePieMenu, api]);
 
     return {
         pieMenuState,

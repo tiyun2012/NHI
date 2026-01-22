@@ -116,6 +116,7 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
     } = usePieMenuInteraction({
         sceneGraph,
         selectedIds,
+        currentMode: meshComponentMode,
         onSelect,
         setTool,
         setMeshComponentMode,
@@ -331,7 +332,8 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
                 );
             } else {
                 if (!e.shiftKey && e.button === 0) {
-                    api.commands.selection.clear();
+                    if (meshComponentMode === 'OBJECT') api.commands.selection.clear();
+                    else api.commands.selection.clearSubSelection();
                 }
             }
             setSelectionBox(null);

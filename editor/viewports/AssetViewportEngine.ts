@@ -296,7 +296,6 @@ export class AssetViewportEngine implements IEngine {
         this.selectionSystem.selectLoop(mode);
         this.notifyUI();
         // Force a frame update (tick) to ensure the newly selected loop is drawn immediately
-        // This is crucial for local viewports that might be event-driven or paused
         this.render(performance.now() * 0.001, 0);
     }
 
@@ -328,6 +327,21 @@ export class AssetViewportEngine implements IEngine {
         }
     }
 
+    // Required by CoreModule
+    registerAssetWithGPU(asset: any) {
+        if (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH') {
+            const id = assetManager.getMeshID(asset.id);
+            if (id > 0) {
+                this.meshSystem.registerMesh(id, asset.geometry);
+            }
+        }
+    }
+
+    // Required by CoreModule to trigger updates
+    tick(dt: number) {
+        this.sceneGraph.update();
+    }
+
     // Helper to render mesh overlays (selection, vertices) matching MeshModule logic
     private renderMeshOverlays() {
         const selectedIndices = this.selectionSystem.selectedIndices;
@@ -335,6 +349,8 @@ export class AssetViewportEngine implements IEngine {
 
         const isObjectMode = this.meshComponentMode === 'OBJECT';
         const isVertexMode = this.meshComponentMode === 'VERTEX';
+        const isUVMode = this.meshComponentMode === 'UV';
+        const isVertexLikeMode = isVertexMode || isUVMode;
         const isFaceMode = this.meshComponentMode === 'FACE';
 
         // Only draw overlays if enabled
@@ -403,7 +419,7 @@ export class AssetViewportEngine implements IEngine {
                         const pA = getP(vA);
                         const pB = getP(vB);
                         
-                        let color = isObjectMode ? colObjectSelection : (isVertexMode ? wireframeDim : wireframeDim);
+                        let color = isObjectMode ? colObjectSelection : (isVertexLikeMode ? wireframeDim : wireframeDim);
                         
                         if (!isObjectMode && !isVertexMode) {
                             // Edge selection check
@@ -416,13 +432,16 @@ export class AssetViewportEngine implements IEngine {
             }
 
             // Draw Vertex Overlay
-            if (isVertexMode || this.uiConfig.showVertexOverlay) {
+            if (isVertexLikeMode || this.uiConfig.showVertexOverlay) {
                 const baseSize = Math.max(3.0, this.uiConfig.vertexSize * 3.0);
+
+                // UV mode selects vertices into subSelection.uvIds, while Vertex mode uses subSelection.vertexIds
+                const selectedVertexSet = isUVMode ? this.selectionSystem.subSelection.uvIds : this.selectionSystem.subSelection.vertexIds;
 
                 for(let i=0; i<verts.length/3; i++) {
                     const wx = worldVerts[i*3], wy = worldVerts[i*3+1], wz = worldVerts[i*3+2];
 
-                    const isSelected = this.selectionSystem.subSelection.vertexIds.has(i);
+                    const isSelected = selectedVertexSet.has(i);
                     const isHovered = this.selectionSystem.hoveredVertex?.entityId === entityId && this.selectionSystem.hoveredVertex?.index === i;
                     
                     let size = baseSize;

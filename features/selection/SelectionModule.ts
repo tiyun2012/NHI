@@ -1,7 +1,8 @@
 
 import type { EngineModule } from '@/engine/core/moduleHost';
 import { registerCommands, registerQueries } from '@/engine/core/registry';
-import { SELECTION_CHANGED } from './selection.events';
+import { createSelectionCommands, createSelectionQueries } from '@/engine/selection';
+import { SELECTION_CHANGED } from '@/engine/selection/selection.events';
 
 function getSelectedIdsFromEngine(engine: any): string[] {
   const indices: Set<number> = engine.selectionSystem.selectedIndices;
@@ -61,89 +62,9 @@ export const SelectionModule: EngineModule = {
   id: 'selection',
 
   init(ctx) {
-    registerCommands(ctx, 'selection', {
-      setSelected(ids) {
-        ctx.engine.setSelected([...ids]);
-        if (ctx.engine.softSelectionEnabled) ctx.engine.recalculateSoftSelection(true);
-        ctx.engine.notifyUI();
-        ctx.events.emit(SELECTION_CHANGED, { ids: [...ids] });
-      },
-      modifySubSelection(type, ids, action) {
-        ctx.engine.selectionSystem.modifySubSelection(type, ids, action);
-        ctx.events.emit('selection:subChanged', undefined);
-        ctx.engine.notifyUI();
-      },
-      clearSubSelection() {
-        ctx.engine.selectionSystem.subSelection.vertexIds.clear();
-        ctx.engine.selectionSystem.subSelection.edgeIds.clear();
-        ctx.engine.selectionSystem.subSelection.faceIds.clear();
-        ctx.engine.selectionSystem.subSelection.uvIds.clear();
-        ctx.engine.recalculateSoftSelection(true);
-        ctx.events.emit('selection:subChanged', undefined);
-        ctx.engine.notifyUI();
-      },
-      selectLoop(mode) {
-        ctx.engine.selectionSystem.selectLoop(mode);
-        ctx.events.emit('selection:subChanged', undefined);
-      },
-      selectInRect(rect, mode, action) {
-        if (mode === 'OBJECT') {
-          const hits = ctx.engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
+    registerCommands(ctx, 'selection', createSelectionCommands(ctx.engine, { emit: (e, p) => ctx.events.emit(e, p), notifyUI: () => ctx.engine.notifyUI() }));
 
-          let finalIds = hits;
-          if (action === 'ADD') {
-            const current = Array.from(ctx.engine.selectionSystem.selectedIndices).map((idx) => ctx.engine.ecs.store.ids[idx]);
-            finalIds = Array.from(new Set([...current, ...hits]));
-          }
-
-          ctx.engine.setSelected(finalIds);
-          ctx.events.emit(SELECTION_CHANGED, { ids: finalIds });
-        } else if (mode === 'VERTEX' || mode === 'UV') {
-          const indices = ctx.engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
-          const type = mode === 'UV' ? 'UV' : 'VERTEX';
-          if (indices.length > 0) {
-            ctx.engine.selectionSystem.modifySubSelection(type, indices, action === 'ADD' ? 'ADD' : 'SET');
-            ctx.events.emit('selection:subChanged', undefined);
-          } else if (action === 'SET') {
-            ctx.engine.selectionSystem.modifySubSelection(type, [], 'SET');
-            ctx.events.emit('selection:subChanged', undefined);
-          }
-        }
-        ctx.engine.notifyUI();
-      },
-      focus() {
-        ctx.events.emit('selection:focus', undefined);
-      },
-      clear() {
-        ctx.engine.setSelected([]);
-        if (ctx.engine.softSelectionEnabled) ctx.engine.recalculateSoftSelection(true);
-        ctx.engine.notifyUI();
-        ctx.events.emit(SELECTION_CHANGED, { ids: [] });
-      },
-    });
-
-    registerQueries(ctx, 'selection', {
-      getSelectedIds() {
-        return getSelectedIdsFromEngine(ctx.engine);
-      },
-      getSubSelectionStats() {
-        const sub = ctx.engine.selectionSystem.subSelection;
-        const lastVertex = sub.vertexIds.size ? Array.from(sub.vertexIds.values()).pop() ?? null : null;
-        const lastFace = sub.faceIds.size ? Array.from(sub.faceIds.values()).pop() ?? null : null;
-
-        return {
-          vertexCount: sub.vertexIds.size,
-          edgeCount: sub.edgeIds.size,
-          faceCount: sub.faceIds.size,
-          uvCount: sub.uvIds.size, 
-          lastVertex,
-          lastFace,
-        };
-      },
-      getSubSelection() {
-        return ctx.engine.selectionSystem.subSelection;
-      },
-    });
+    registerQueries(ctx, 'selection', createSelectionQueries(ctx.engine));
 
     let lastSelectionKey = '';
     let lastSubKey = '';
