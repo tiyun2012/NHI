@@ -18,7 +18,7 @@ export interface WindowItem {
 }
 
 export interface WindowManagerContextType {
-    openWindow: (id: string) => void;
+    openWindow: (id: string, configIfMissing?: Omit<WindowItem, 'isOpen' | 'isNested' | 'zIndex'>) => void;
     closeWindow: (id: string) => void;
     toggleWindow: (id: string) => void;
     registerWindow: (config: Omit<WindowItem, 'isOpen' | 'isNested' | 'zIndex'>) => void;
@@ -42,27 +42,49 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
         });
     }, []);
 
+    // Only update Z-Index (UI Stacking)
     const bringToFront = useCallback((id: string) => {
         setMaxZ(prev => {
             const nextZ = prev + 1;
-            setWindows(curr => ({
-                ...curr,
-                [id]: { ...curr[id], zIndex: nextZ }
-            }));
+            setWindows(curr => {
+                if (!curr[id]) return curr; // Safety check
+                return {
+                    ...curr,
+                    [id]: { ...curr[id], zIndex: nextZ }
+                };
+            });
             return nextZ;
         });
-        // Sync to global editor focus state
+    }, []);
+
+    // Handle Logic Focus (Context)
+    const focusWindow = useCallback((id: string) => {
         setFocusedWidgetId(id);
     }, [setFocusedWidgetId]);
 
-    const openWindow = useCallback((id: string) => {
+    const openWindow = useCallback((id: string, configIfMissing?: Omit<WindowItem, 'isOpen' | 'isNested' | 'zIndex'>) => {
         setWindows(prev => {
-            if(!prev[id]) return prev;
-            // Also bring to front when opening
-            return { ...prev, [id]: { ...prev[id], isOpen: true, isNested: false } };
+            let win = prev[id];
+            
+            // Auto-register if missing and config provided (Fixes race condition)
+            if (!win && configIfMissing) {
+                 win = { ...configIfMissing, isOpen: false, isNested: false, zIndex: 100 };
+            }
+
+            if (!win) {
+                // If still missing, we can't open it.
+                return prev; 
+            }
+
+            return { ...prev, [win.id]: { ...win, isOpen: true, isNested: false } };
         });
+        
+        // Schedule Z-update. 
+        // Note: bringToFront uses setMaxZ/setWindows which will run in the next render cycle or batch.
+        // If window was just added in the previous setWindows, it will be available for bringToFront's reducer.
         bringToFront(id);
-    }, [bringToFront]);
+        focusWindow(id);
+    }, [bringToFront, focusWindow]);
 
     const closeWindow = useCallback((id: string) => {
         setWindows(prev => prev[id] ? { ...prev, [id]: { ...prev[id], isOpen: false } } : prev);
@@ -75,11 +97,14 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
             const newState = !win.isOpen;
             if (newState) {
                 // If opening, bring to front
-                setTimeout(() => bringToFront(id), 0);
+                setTimeout(() => {
+                    bringToFront(id);
+                    focusWindow(id);
+                }, 0);
             }
             return { ...prev, [id]: { ...win, isOpen: newState, isNested: false } };
         });
-    }, [bringToFront]);
+    }, [bringToFront, focusWindow]);
 
     const nestWindow = useCallback((id: string) => {
         setWindows(prev => prev[id] ? { ...prev, [id]: { ...prev[id], isNested: true } } : prev);
@@ -88,13 +113,12 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
     const restoreWindow = useCallback((id: string) => {
         setWindows(prev => prev[id] ? { ...prev, [id]: { ...prev[id], isNested: false, isOpen: true } } : prev);
         bringToFront(id);
-    }, [bringToFront]);
+        focusWindow(id);
+    }, [bringToFront, focusWindow]);
 
     const activeWindows = useMemo(() => (Object.values(windows) as WindowItem[]).filter(w => w.isOpen && !w.isNested), [windows]);
     const nestedWindows = useMemo(() => (Object.values(windows) as WindowItem[]).filter(w => w.isOpen && w.isNested), [windows]);
 
-    // OPTIMIZATION: Memoize the context value object.
-    // This prevents consumers (like App.tsx) from re-running effects every time a window state changes (like nesting).
     const contextValue = useMemo(() => ({ 
         openWindow, 
         closeWindow, 
@@ -120,8 +144,9 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
                         onClose={() => closeWindow(win.id)}
                         onNest={() => nestWindow(win.id)}
                         className="pointer-events-auto" // Re-enable pointer events for the window itself
-                        onMouseDown={() => bringToFront(win.id)}
-                        onMouseEnter={() => setFocusedWidgetId(win.id)}
+                        onInteract={() => bringToFront(win.id)}
+                        onFocus={() => focusWindow(win.id)}
+                        onMouseEnter={() => focusWindow(win.id)} // Focus on hover (Mouse-follows-focus style)
                         children={win.content}
                     />
                 </div>

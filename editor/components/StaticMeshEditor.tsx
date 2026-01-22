@@ -194,7 +194,7 @@ const StaticMeshViewport: React.FC<{
         engine.setRenderer({ renderGizmos: (vp, pos, scale, h, a) => gizmoRenderer.renderGizmos(vp, pos, scale, h as any, a as any) });
 
         const lineProgram = compileProgram(gl, LINE_VS, LINE_FS);
-        const gridLines = []; const gridSize = 10;
+        const gridLines: number[] = []; const gridSize = 10;
         for (let i = -gridSize; i <= gridSize; i++) {
             gridLines.push(i, 0, -gridSize, i, 0, gridSize);
             gridLines.push(-gridSize, 0, i, gridSize, 0, i);
@@ -238,8 +238,8 @@ const StaticMeshViewport: React.FC<{
 
             if (showGrid) {
                 gl.useProgram(lineProgram);
-                gl.uniformMatrix4fv(gl.getUniformLocation(lineProgram, 'u_mvp'), false, vp);
-                gl.uniform4f(gl.getUniformLocation(lineProgram, 'u_color'), 0.3, 0.3, 0.3, 1.0);
+                gl.uniformMatrix4fv(gl.getUniformLocation(lineProgram, 'u_mvp')!, false, vp);
+                gl.uniform4f(gl.getUniformLocation(lineProgram, 'u_color')!, 0.3, 0.3, 0.3, 1.0);
                 gl.bindVertexArray(gridVao);
                 gl.drawArrays(gl.LINES, 0, gridLines.length / 3);
             }
@@ -256,6 +256,8 @@ const StaticMeshViewport: React.FC<{
 
     // Mouse Handlers (Same logic as before, just using local refs)
     const handleMouseDown = (e: React.MouseEvent) => {
+      e.stopPropagation(); // Stop propagation to container windows
+      
       // Set focus to this viewport
       if (setFocusedWidgetId) setFocusedWidgetId('asset_viewport');
 
@@ -418,325 +420,232 @@ const StaticMeshViewport: React.FC<{
     );
 };
 
-export const StaticMeshEditor: React.FC<{ assetId: string }> = ({ assetId }) => {
-  const editorCtx = useContext(EditorContext);
-  // Track local focus state for this editor window (Viewport vs UV Editor)
-  const [localFocusedWidget, setLocalFocusedWidget] = useState<string>('asset_viewport');
+export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) => {
+    // Local Engine Instance for this editor window
+    const [engine] = useState(() => new AssetViewportEngine());
+    const gizmoSystem = useMemo(() => new GizmoSystem(engine), [engine]);
+    const onResetRef = useRef<() => void>(() => {});
 
-  const [transformSpaceLocal, setTransformSpaceLocal] = useState<TransformSpace>('World');
-  const [snapSettingsLocal, setSnapSettingsLocal] = useState<SnapSettings>(DEFAULT_SNAP_CONFIG);
-  const [skeletonVizLocal, setSkeletonVizLocal] = useState(DEFAULT_SKELETON_VIZ);
+    // Local Viewport State (Mode, Tool, Selection, etc.)
+    const vpState = useAssetViewportState();
+    
+    // View Settings
+    const [showGrid, setShowGrid] = useState(true);
+    const [showWireframe, setShowWireframe] = useState(false);
+    const [renderMode, setRenderMode] = useState(0);
 
-  // Local state for view settings
-  const viewportState = useAssetViewportState({
-    tool: editorCtx?.tool ?? 'SELECT',
-    meshComponentMode: editorCtx?.meshComponentMode ?? 'OBJECT',
-    softSelectionEnabled: editorCtx?.softSelectionEnabled ?? false,
-    softSelectionRadius: editorCtx?.softSelectionRadius ?? 1.0,
-    softSelectionMode: editorCtx?.softSelectionMode ?? 'FIXED',
-    softSelectionFalloff: editorCtx?.softSelectionFalloff ?? 'VOLUME',
-    softSelectionHeatmapVisible: editorCtx?.softSelectionHeatmapVisible ?? false,
-    uiConfig: editorCtx?.uiConfig ?? DEFAULT_UI_CONFIG
-  });
+    // Context for DockLayout
+    const dockContext = useMemo<EditorContextType>(() => ({
+        // Map local state to global interface expected by panels
+        entities: engine.ecs.getAllProxies(engine.sceneGraph),
+        sceneGraph: engine.sceneGraph,
+        selectedIds: Array.from(engine.selectionSystem.selectedIndices).map(idx => engine.ecs.store.ids[idx]),
+        setSelectedIds: (ids) => engine.setSelected(ids),
+        selectedAssetIds: [], setSelectedAssetIds: () => {},
+        inspectedNode: null, setInspectedNode: () => {},
+        activeGraphConnections: [], setActiveGraphConnections: () => {},
+        updateInspectedNodeData: () => {},
+        onNodeDataChange: () => {}, setOnNodeDataChange: () => {},
+        selectionType: 'ENTITY', setSelectionType: () => {},
+        
+        // Viewport State
+        tool: vpState.tool, setTool: vpState.setTool,
+        meshComponentMode: vpState.meshComponentMode, setMeshComponentMode: vpState.setMeshComponentMode,
+        softSelectionEnabled: vpState.softSelectionEnabled, setSoftSelectionEnabled: vpState.setSoftSelectionEnabled,
+        softSelectionRadius: vpState.softSelectionRadius, setSoftSelectionRadius: vpState.setSoftSelectionRadius,
+        softSelectionMode: vpState.softSelectionMode, setSoftSelectionMode: vpState.setSoftSelectionMode,
+        softSelectionFalloff: vpState.softSelectionFalloff, setSoftSelectionFalloff: vpState.setSoftSelectionFalloff,
+        softSelectionHeatmapVisible: vpState.softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible: vpState.setSoftSelectionHeatmapVisible,
+        
+        transformSpace: 'Local', setTransformSpace: () => {},
+        isPlaying: false, simulationMode: 'STOPPED',
+        uiConfig: vpState.uiConfig, setUiConfig: vpState.setUiConfig,
+        gridConfig: DEFAULT_UI_CONFIG as any, setGridConfig: () => {},
+        snapSettings: DEFAULT_SNAP_CONFIG, setSnapSettings: () => {},
+        skeletonViz: DEFAULT_SKELETON_VIZ, setSkeletonViz: (v) => engine.skeletonTool.setOptions(v),
+        
+        focusedWidgetId: null, setFocusedWidgetId: () => {}
+    }), [engine, vpState]);
 
-  const {
-    tool, setTool, meshComponentMode, setMeshComponentMode,
-    softSelectionEnabled, setSoftSelectionEnabled,
-    softSelectionRadius, setSoftSelectionRadius,
-    softSelectionMode, setSoftSelectionMode,
-    softSelectionFalloff, setSoftSelectionFalloff,
-    softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible,
-    uiConfig, setUiConfig,
-  } = viewportState;
+    useEffect(() => {
+        if (assetId) {
+            engine.setPreviewMesh(assetId);
+            onResetRef.current(); // Reset camera
+        }
+    }, [assetId, engine]);
 
-  // Use global UI config if available for consistent vertex display settings
-  const effectiveUiConfig = editorCtx?.uiConfig ?? uiConfig;
-  const setEffectiveUiConfig = editorCtx?.setUiConfig ?? setUiConfig;
+    // Force engine update when local state changes
+    useEffect(() => {
+        engine.meshComponentMode = vpState.meshComponentMode;
+        engine.softSelectionEnabled = vpState.softSelectionEnabled;
+        engine.softSelectionRadius = vpState.softSelectionRadius;
+        engine.softSelectionMode = vpState.softSelectionMode;
+        engine.softSelectionFalloff = vpState.softSelectionFalloff;
+        engine.softSelectionHeatmapVisible = vpState.softSelectionHeatmapVisible;
+        
+        // Sync UI config
+        engine.uiConfig = vpState.uiConfig;
+        
+        engine.notifyUI();
+    }, [engine, vpState]);
 
-  const [showGrid, setShowGrid] = useState<boolean>(true);
-  const [showWireframe, setShowWireframe] = useState<boolean>(false);
-  const [renderMode, setRenderMode] = useState<number>(0);
-  
-  const resetCameraRef = useRef<() => void>(() => {});
-  
-  // -- Engine Instance Management --
-  // We create one instance of the engine logic and gizmo system to be shared across docked panels
-  const [engineState] = useState(() => {
-      const engine = new AssetViewportEngine(() => {}, () => {});
-      const gizmoSystem = new GizmoSystem(engine);
-      gizmoSystem.renderInSelectTool = true;
-      return { engine, gizmoSystem };
-  });
-  
-  const { engine, gizmoSystem } = engineState;
+    // Create a local API bridge so components inside the editor (like UV Editor)
+    // talk to the local engine instance instead of the global singleton.
+    const localApi = useMemo(() => {
+        const commands: Partial<EngineCommands> = {
+            selection: createSelectionCommands(engine, { notifyUI: () => engine.notifyUI(), emit: (e, p) => engine.events.emit(e, p) }),
+            mesh: {
+                setComponentMode: (m) => vpState.setMeshComponentMode(m),
+                updateAssetGeometry: (aid, geo) => engine.notifyMeshGeometryChanged(engine.entityId!)
+            },
+            modeling: {
+                extrudeFaces: () => {}, bevelEdges: () => {}, weldVertices: () => {}, connectComponents: () => {}, deleteSelectedFaces: () => {}
+            },
+            skeleton: {
+                setOptions: (o) => { engine.skeletonTool.setOptions(o); engine.notifyUI(); }
+            },
+            sculpt: {
+                setEnabled: (v) => vpState.setSoftSelectionEnabled(v),
+                setRadius: (v) => vpState.setSoftSelectionRadius(v),
+                setMode: (v) => vpState.setSoftSelectionMode(v),
+                setFalloff: (v) => vpState.setSoftSelectionFalloff(v),
+                setHeatmapVisible: (v) => vpState.setSoftSelectionHeatmapVisible(v)
+            },
+            ui: {
+                setFocusedWidget: (id) => dockContext.setFocusedWidgetId(id),
+                notify: () => engine.notifyUI(),
+                // partial implementation
+                registerSection: () => {},
+                registerWindow: () => {}
+            },
+            scene: {
+                 // partial scene commands needed for pie menu?
+                createEntity: () => '',
+                deleteEntity: () => {},
+                duplicateEntity: () => {},
+                renameEntity: () => {},
+                reparentEntity: () => {},
+                addComponent: () => {},
+                removeComponent: () => {},
+                createEntityFromAsset: () => null,
+                loadSceneFromAsset: () => {}
+            },
+            simulation: { setMode: () => {} },
+            history: { pushState: () => {}, undo: () => {}, redo: () => {} }
+        };
 
-  // Sync Engine Properties
-  useEffect(() => {
-      engine.meshComponentMode = meshComponentMode;
-      engine.softSelectionEnabled = softSelectionEnabled;
-      engine.softSelectionRadius = softSelectionRadius;
-      engine.softSelectionMode = softSelectionMode;
-      engine.softSelectionFalloff = softSelectionFalloff;
-      engine.softSelectionHeatmapVisible = softSelectionHeatmapVisible;
-      engine.uiConfig = effectiveUiConfig;
-      engine.skeletonTool.setOptions(skeletonVizLocal);
-      engine.recalculateSoftSelection(true, meshComponentMode);
-      
-      gizmoSystem.setTool(tool);
-  }, [
-      meshComponentMode, softSelectionEnabled, softSelectionRadius, softSelectionMode, 
-      softSelectionFalloff, softSelectionHeatmapVisible, effectiveUiConfig, skeletonVizLocal, tool
-  ]);
+        const queries: Partial<EngineQueries> = {
+            selection: createSelectionQueries(engine),
+            mesh: {
+                getAssetByEntity: (eid) => {
+                     // Local implementation
+                     return assetManager.getAsset(assetId || '') || null;
+                }
+            },
+            skeleton: {
+                getOptions: () => engine.skeletonTool.getOptions()
+            },
+            ui: {
+                getFocusedWidget: () => dockContext.focusedWidgetId
+            },
+            scene: {
+                getEntities: () => dockContext.entities,
+                getEntityName: (id) => engine.ecs.store.names[engine.ecs.idToIndex.get(id) ?? -1] || null,
+                getEntityCount: () => engine.ecs.count
+            },
+            registry: { getModules: () => [] },
+            simulation: { getMode: () => 'STOPPED', isPlaying: () => false, getMetrics: () => engine.metrics }
+        };
 
-  // Load Asset
-  useEffect(() => {
-      if (!assetId) return;
-      engine.setPreviewMesh(assetId);
-      engine.syncTransforms(false);
-      
-      if (resetCameraRef.current) {
-          resetCameraRef.current();
-      }
-  }, [assetId, engine]);
+        return {
+            commands: commands as EngineCommands,
+            queries: queries as EngineQueries,
+            subscribe: (evt: string, cb: any) => {
+                engine.events.on(evt, cb);
+                return () => engine.events.off(evt, cb);
+            }
+        };
+    }, [engine, vpState, dockContext, assetId]);
 
-  // Interaction API
-  const localInteractionApi = useMemo<InteractionAPI>(() => {
-      const baseApi: InteractionAPI = {
-          selection: createSelectionCommands(engine, { emit: (e, p) => engine.events.emit(e, p), notifyUI: () => engine.notifyUI() }),
-          mesh: {
-              setComponentMode: (m) => {
-                  engine.meshComponentMode = m;
-                  setMeshComponentMode(m);
-              }
-          },
-          scene: {
-              deleteEntity: () => console.warn("Cannot delete preview asset entity"),
-              duplicateEntity: () => engine.resetPreviewTransform()
-          },
-          modeling: {
-              extrudeFaces: () => engine.extrudeFaces(),
-              bevelEdges: () => engine.bevelEdges(),
-              weldVertices: () => engine.weldVertices(),
-              connectComponents: () => engine.connectComponents(),
-              deleteSelectedFaces: () => engine.deleteSelectedFaces(),
-          },
-          sculpt: {
-              setEnabled: (v) => setSoftSelectionEnabled(v),
-              setRadius: (v) => setSoftSelectionRadius(v),
-              setHeatmapVisible: (v) => setSoftSelectionHeatmapVisible(v),
-          }
-      };
-      return baseApi;
-  }, [engine, setMeshComponentMode, setSoftSelectionEnabled, setSoftSelectionRadius, setSoftSelectionHeatmapVisible]);
+    const defaultLayout: LayoutData = {
+        dockbox: {
+            mode: 'horizontal',
+            children: [
+                {
+                    size: 250,
+                    tabs: [{ id: 'options', title: 'Options', content: <AssetViewportOptionsPanel 
+                        tool={vpState.tool} setTool={vpState.setTool}
+                        meshComponentMode={vpState.meshComponentMode} setMeshComponentMode={vpState.setMeshComponentMode}
+                        softSelectionEnabled={vpState.softSelectionEnabled} setSoftSelectionEnabled={vpState.setSoftSelectionEnabled}
+                        softSelectionRadius={vpState.softSelectionRadius} setSoftSelectionRadius={vpState.setSoftSelectionRadius}
+                        softSelectionMode={vpState.softSelectionMode} setSoftSelectionMode={vpState.setSoftSelectionMode}
+                        softSelectionFalloff={vpState.softSelectionFalloff} setSoftSelectionFalloff={vpState.setSoftSelectionFalloff}
+                        softSelectionHeatmapVisible={vpState.softSelectionHeatmapVisible} setSoftSelectionHeatmapVisible={vpState.setSoftSelectionHeatmapVisible}
+                        uiConfig={vpState.uiConfig} setUiConfig={vpState.setUiConfig}
+                        skeletonViz={dockContext.skeletonViz} setSkeletonViz={dockContext.setSkeletonViz}
+                    /> }]
+                },
+                {
+                    mode: 'vertical',
+                    size: 800,
+                    children: [
+                        {
+                            size: 600,
+                            tabs: [{ 
+                                id: 'viewport', 
+                                title: 'Viewport', 
+                                content: (
+                                    <div className="flex flex-col h-full bg-[#151515]">
+                                        <StaticMeshToolbar 
+                                            tool={vpState.tool} setTool={vpState.setTool}
+                                            mode={vpState.meshComponentMode} setMode={vpState.setMeshComponentMode}
+                                            showGrid={showGrid} setShowGrid={setShowGrid}
+                                            showWireframe={showWireframe} setShowWireframe={setShowWireframe}
+                                            onResetCamera={() => onResetRef.current()}
+                                            renderMode={renderMode} setRenderMode={setRenderMode}
+                                        />
+                                        <div className="flex-1 relative overflow-hidden">
+                                            <StaticMeshViewport 
+                                                engine={engine} 
+                                                gizmoSystem={gizmoSystem}
+                                                onResetRef={onResetRef}
+                                                showGrid={showGrid}
+                                                showWireframe={showWireframe}
+                                                renderMode={renderMode}
+                                            />
+                                        </div>
+                                    </div>
+                                )
+                            }]
+                        },
+                        {
+                            size: 300,
+                            tabs: [{ 
+                                id: 'uv', 
+                                title: 'UV Editor', 
+                                content: <UVEditorPanel 
+                                    api={localApi}
+                                    assetId={assetId}
+                                /> 
+                            }]
+                        }
+                    ]
+                }
+            ]
+        }
+    };
 
-  // Engine API Adapter
-  const localEngineApi = useMemo<EngineAPI>(() => {
-      const commands: Partial<EngineCommands> = {
-          selection: createSelectionCommands(engine, { emit: (e, p) => engine.events.emit(e, p), notifyUI: () => engine.notifyUI() }),
-          mesh: {
-              setComponentMode: (m) => localInteractionApi.mesh.setComponentMode(m),
-              updateAssetGeometry: (aId, geom) => {
-                  const asset = assetManager.getAsset(aId);
-                  if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
-                      const meshAsset = asset as StaticMeshAsset;
-                      if (geom.vertices) meshAsset.geometry.vertices = geom.vertices;
-                      if (geom.normals) meshAsset.geometry.normals = geom.normals;
-                      if (geom.uvs) meshAsset.geometry.uvs = geom.uvs;
-                      if (geom.indices) meshAsset.geometry.indices = geom.indices;
-                      
-                      if (engine.entityId) {
-                          engine.notifyMeshGeometryChanged(engine.entityId);
-                      }
-                  }
-              }
-          },
-          modeling: {
-              extrudeFaces: localInteractionApi.modeling.extrudeFaces,
-              bevelEdges: localInteractionApi.modeling.bevelEdges,
-              weldVertices: localInteractionApi.modeling.weldVertices,
-              connectComponents: localInteractionApi.modeling.connectComponents,
-              deleteSelectedFaces: localInteractionApi.modeling.deleteSelectedFaces
-          },
-          skeleton: {
-              setOptions: (options) => {
-                  setSkeletonVizLocal(prev => ({ ...prev, ...options }));
-                  engine.skeletonTool.setOptions(options);
-                  engine.notifyUI();
-              }
-          },
-          sculpt: {
-              setEnabled: localInteractionApi.sculpt?.setEnabled || (() => {}),
-              setRadius: localInteractionApi.sculpt?.setRadius || (() => {}),
-              setMode: (m) => setSoftSelectionMode(m),
-              setFalloff: (f) => setSoftSelectionFalloff(f),
-              setHeatmapVisible: localInteractionApi.sculpt?.setHeatmapVisible || (() => {})
-          }
-      } as any;
-
-      const queries: Partial<EngineQueries> = {
-          selection: {
-              getSelectedIds: () => {
-                  const indices = engine.selectionSystem.selectedIndices;
-                  const ids: string[] = [];
-                  indices.forEach((idx: number) => {
-                      const id = engine.ecs.store.ids[idx];
-                      if (id) ids.push(id);
-                  });
-                  return ids;
-              },
-              getSubSelection: () => engine.selectionSystem.subSelection,
-              getSubSelectionStats: () => {
-                  const sub = engine.selectionSystem.subSelection;
-                  const lastVertex = sub.vertexIds.size ? Array.from(sub.vertexIds.values()).pop() ?? null : null;
-                  const lastFace = sub.faceIds.size ? Array.from(sub.faceIds.values()).pop() ?? null : null;
-                  return {
-                      vertexCount: sub.vertexIds.size,
-                      edgeCount: sub.edgeIds.size,
-                      faceCount: sub.faceIds.size,
-                      uvCount: sub.uvIds.size,
-                      lastVertex,
-                      lastFace
-                  };
-              }
-          },
-          mesh: {
-              getAssetByEntity: (eid) => {
-                  if (engine.entityId === eid) {
-                      return assetManager.getAsset(assetId) || null;
-                  }
-                  return null;
-              }
-          },
-          skeleton: {
-              getOptions: () => engine.skeletonTool.getOptions() || DEFAULT_SKELETON_VIZ
-          },
-          simulation: {
-              getMode: () => 'STOPPED',
-              isPlaying: () => false,
-              getMetrics: () => ({ fps: 60, frameTime: 16, drawCalls: 1, triangleCount: 0, entityCount: 1 })
-          },
-          ui: {
-              getFocusedWidget() {
-                  return localFocusedWidget;
-              }
-          }
-      } as any;
-
-      return {
-          commands: commands as EngineCommands,
-          queries: queries as EngineQueries,
-          subscribe: (event: string, cb: (payload: any) => void) => {
-              engine.events.on(event, cb);
-              return () => engine.events.off(event, cb);
-          }
-      };
-  }, [localInteractionApi, assetId, engine, localFocusedWidget]);
-
-  const localEditorContext = useMemo<EditorContextType>(() => {
-      const base = editorCtx || {} as any;
-      return {
-          ...base,
-          entities: [],
-          sceneGraph: engine.sceneGraph as any,
-          selectedIds: engine.selectionSystem.selectedIndices.size ? [engine.entityId!] : [],
-          setSelectedIds: (ids) => localInteractionApi.selection.setSelected(ids),
-          selectedAssetIds: [assetId],
-          setSelectedAssetIds: () => {},
-          
-          tool, setTool,
-          meshComponentMode, setMeshComponentMode,
-          
-          transformSpace: transformSpaceLocal, setTransformSpace: setTransformSpaceLocal,
-          snapSettings: snapSettingsLocal, setSnapSettings: setSnapSettingsLocal,
-          skeletonViz: skeletonVizLocal, setSkeletonViz: setSkeletonVizLocal,
-          
-          softSelectionEnabled, setSoftSelectionEnabled,
-          softSelectionRadius, setSoftSelectionRadius,
-          softSelectionMode, setSoftSelectionMode,
-          softSelectionFalloff, setSoftSelectionFalloff,
-          softSelectionHeatmapVisible, setSoftSelectionHeatmapVisible,
-          
-          uiConfig: effectiveUiConfig, setUiConfig: setEffectiveUiConfig,
-          
-          // Focus Management
-          focusedWidgetId: localFocusedWidget, 
-          setFocusedWidgetId: (id) => {
-              setLocalFocusedWidget(id || 'asset_viewport');
-              if (base.setFocusedWidgetId) base.setFocusedWidgetId(id);
-          }
-      };
-  }, [
-      editorCtx, localInteractionApi, assetId, 
-      tool, meshComponentMode, transformSpaceLocal, snapSettingsLocal, skeletonVizLocal,
-      softSelectionEnabled, softSelectionRadius, softSelectionMode, softSelectionFalloff, softSelectionHeatmapVisible,
-      effectiveUiConfig, localFocusedWidget
-  ]);
-
-  const defaultLayout: LayoutData = {
-      dockbox: {
-          mode: 'horizontal',
-          children: [
-              {
-                  mode: 'vertical',
-                  size: 800,
-                  children: [
-                      { 
-                          tabs: [{ id: 'viewport', title: 'Viewport', content: <StaticMeshViewport engine={engine} gizmoSystem={gizmoSystem} onResetRef={resetCameraRef} showGrid={showGrid} showWireframe={showWireframe} renderMode={renderMode} />, closable: false }] 
-                      },
-                      { 
-                          size: 300,
-                          tabs: [{ id: 'uv_editor', title: 'UV Editor', content: <UVEditorPanel api={localEngineApi} assetId={assetId} />, closable: false }] 
-                      }
-                  ]
-              },
-              {
-                  size: 320,
-                  tabs: [{ 
-                      id: 'options', 
-                      title: 'Options', 
-                      content: (
-                        <AssetViewportOptionsPanel
-                            tool={tool} setTool={setTool}
-                            meshComponentMode={meshComponentMode} setMeshComponentMode={(m) => localInteractionApi.mesh.setComponentMode(m)}
-                            uiConfig={effectiveUiConfig} setUiConfig={setEffectiveUiConfig}
-                            softSelectionEnabled={softSelectionEnabled} setSoftSelectionEnabled={setSoftSelectionEnabled}
-                            softSelectionRadius={softSelectionRadius} setSoftSelectionRadius={setSoftSelectionRadius}
-                            softSelectionMode={softSelectionMode} setSoftSelectionMode={setSoftSelectionMode}
-                            softSelectionFalloff={softSelectionFalloff} setSoftSelectionFalloff={setSoftSelectionFalloff}
-                            softSelectionHeatmapVisible={softSelectionHeatmapVisible} setSoftSelectionHeatmapVisible={setSoftSelectionHeatmapVisible}
-                            skeletonViz={skeletonVizLocal} setSkeletonViz={setSkeletonVizLocal}
-                            transformSpace={transformSpaceLocal} setTransformSpace={setTransformSpaceLocal}
-                            snapSettings={snapSettingsLocal} setSnapSettings={setSnapSettingsLocal}
-                        />
-                      ),
-                      closable: false
-                  }]
-              }
-          ]
-      }
-  };
-
-  return (
-    <EditorContext.Provider value={localEditorContext}>
-        <EngineProvider api={localEngineApi}>
-            <div className="flex flex-col h-full bg-[#151515] select-none text-xs">
-              <StaticMeshToolbar 
-                  tool={tool} setTool={setTool}
-                  mode={meshComponentMode} setMode={(m) => localInteractionApi.mesh.setComponentMode(m)}
-                  showGrid={showGrid} setShowGrid={setShowGrid}
-                  showWireframe={showWireframe} setShowWireframe={setShowWireframe}
-                  onResetCamera={() => resetCameraRef.current()}
-                  renderMode={renderMode} setRenderMode={setRenderMode}
-              />
-              <div className="flex-1 relative">
-                  <DockLayout
-                      defaultLayout={defaultLayout}
-                      style={{ width: '100%', height: '100%', background: '#151515' }}
-                      dropMode="edge"
-                  />
-              </div>
-            </div>
-        </EngineProvider>
-    </EditorContext.Provider>
-  );
+    return (
+        <EditorContext.Provider value={dockContext}>
+            <EngineProvider api={localApi}>
+                <div className="w-full h-full bg-[#101010] flex flex-col text-xs font-sans">
+                    <DockLayout
+                        defaultLayout={defaultLayout}
+                        style={{ width: '100%', height: '100%', background: '#101010' }}
+                        dropMode="edge"
+                    />
+                </div>
+            </EngineProvider>
+        </EditorContext.Provider>
+    );
 };

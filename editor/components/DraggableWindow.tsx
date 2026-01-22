@@ -14,7 +14,8 @@ interface DraggableWindowProps {
     icon?: string;
     initialPosition?: { x: number, y: number };
     className?: string;
-    onMouseDown?: () => void;
+    onInteract?: () => void; // Triggered on Capture (Update Z-Index)
+    onFocus?: () => void;    // Triggered on Bubble (Update Focus ID)
     onMouseEnter?: () => void;
 }
 
@@ -22,7 +23,7 @@ type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
 export const DraggableWindow = ({ 
     id, title, onClose, onNest, children, width = 300, height = "auto", icon, 
-    initialPosition, className = "", onMouseDown, onMouseEnter
+    initialPosition, className = "", onInteract, onFocus, onMouseEnter
 }: DraggableWindowProps) => {
     
     const { uiConfig } = useContext(EditorContext)!;
@@ -134,7 +135,6 @@ export const DraggableWindow = ({
     }, [isDragging, resizing, isMaximized]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (onMouseDown) onMouseDown(); // Bring to front
         if (isMaximized) return;
         if (e.button !== 0) return;
         if ((e.target as HTMLElement).closest('button')) return; // Don't drag if clicking buttons
@@ -169,7 +169,7 @@ export const DraggableWindow = ({
         if (isMaximized) return;
         e.stopPropagation();
         e.preventDefault();
-        if (onMouseDown) onMouseDown();
+        
         if (!windowRef.current) return;
 
         const rect = windowRef.current.getBoundingClientRect();
@@ -204,7 +204,8 @@ export const DraggableWindow = ({
             ref={windowRef}
             className={`glass-panel flex flex-col overflow-visible ${className}`}
             style={windowStyle}
-            onMouseDown={onMouseDown}
+            onMouseDownCapture={onInteract} // Handle Z-Index bump in Capture phase
+            onMouseDown={onFocus}           // Handle Focus Set in Bubble phase (can be stopped by children)
             onMouseEnter={onMouseEnter}
         >
             <style>{hoverStyle}</style>

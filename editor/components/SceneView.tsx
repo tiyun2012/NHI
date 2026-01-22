@@ -31,7 +31,8 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
         meshComponentMode, setMeshComponentMode, 
         softSelectionEnabled, 
         softSelectionRadius, 
-        setTool
+        setTool,
+        setFocusedWidgetId
     } = useContext(EditorContext)!;
     
     const containerRef = useRef<HTMLDivElement>(null);
@@ -234,6 +235,10 @@ export const SceneView: React.FC<SceneViewProps> = ({ entities, sceneGraph, onSe
     }, [api]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent bubbling to parent Window (to keep focus on this widget)
+        
+        if (setFocusedWidgetId) setFocusedWidgetId('VIEWPORT');
+        
         if (isBrushKeyHeld.current) return;
 
         if (pieMenuState && e.button !== 2) closePieMenu();

@@ -1,5 +1,5 @@
 
-import { IEngine, MeshComponentMode, Vector3, SoftSelectionFalloff, StaticMeshAsset, SkeletalMeshAsset, ComponentType, UIConfiguration } from '@/types';
+import { IEngine, MeshComponentMode, Vector3, SoftSelectionFalloff, StaticMeshAsset, SkeletalMeshAsset, ComponentType, UIConfiguration, PerformanceMetrics } from '@/types';
 import { SoAEntitySystem } from '@/engine/ecs/EntitySystem';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { SelectionSystem } from '@/engine/systems/SelectionSystem';
@@ -50,6 +50,9 @@ export class AssetViewportEngine implements IEngine {
 
     // Tooling mode
     meshComponentMode: MeshComponentMode = 'OBJECT';
+
+    // Metrics (Required by local API query)
+    metrics: PerformanceMetrics = { fps: 0, frameTime: 0, drawCalls: 0, triangleCount: 0, entityCount: 0 };
 
     // GizmoSystem expects renderer facade
     renderer: GizmoRendererFacade = {

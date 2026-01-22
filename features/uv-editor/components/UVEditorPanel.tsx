@@ -273,6 +273,8 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     }, [editingAsset, uvBuffer, transform, selectedIndices, selectedEdges, selectedFaces, selectionMode, selectedVertex, viewportSize, uiConfig]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Stop propagation to container windows
+        
         if (!containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
         const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
@@ -491,7 +493,10 @@ export const UVEditorPanel: React.FC<UVEditorProps> = ({ api: overrideApi, asset
     return (
         <div 
             className="w-full h-full flex flex-col bg-[#1a1a1a] select-none" 
-            onMouseDown={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}
+            onMouseDown={(e) => { 
+                e.stopPropagation(); 
+                if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); 
+            }}
             onMouseEnter={() => { if(ctx?.setFocusedWidgetId) ctx.setFocusedWidgetId('uveditor'); }}
             onContextMenu={(e) => e.preventDefault()}
         >

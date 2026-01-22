@@ -185,7 +185,8 @@ export const ProjectPanel: React.FC = () => {
             // Standalone Window for Mesh Editing
             if (wm) {
                 const winId = `asset_editor_${asset.id}`;
-                wm.registerWindow({
+                // Use atomic open-with-register to prevent z-order race conditions
+                wm.openWindow(winId, {
                     id: winId,
                     title: `Editing: ${asset.name}`,
                     icon: asset.type === 'SKELETAL_MESH' ? 'PersonStanding' : 'Box',
@@ -194,7 +195,6 @@ export const ProjectPanel: React.FC = () => {
                     height: 600,
                     initialPosition: { x: window.innerWidth / 2 - 450, y: window.innerHeight / 2 - 300 }
                 });
-                wm.openWindow(winId);
             }
         } 
         else if (asset.type === 'SCENE') {
@@ -301,7 +301,8 @@ export const ProjectPanel: React.FC = () => {
                             renaming={renamingId === asset.id}
                             onRename={(name) => handleRename(asset.id, name)}
                             onSelect={(multi) => {
-                                wm?.openWindow('inspector');
+                                // REMOVED auto-opening Inspector here to prevent it from covering new windows
+                                // The Inspector will still update its content via context if it is already open.
                                 if (multi) setSelectedAssetIds([...selectedAssetIds, asset.id]);
                                 else setSelectedAssetIds([asset.id]);
                                 setInspectedNode(null); // Clear graph selection
@@ -363,7 +364,6 @@ export const ProjectPanel: React.FC = () => {
                         {(editingAsset.type === 'MATERIAL' || editingAsset.type === 'SCRIPT' || editingAsset.type === 'RIG') && (
                             <NodeGraph assetId={editingAsset.id} />
                         )}
-                        {/* StaticMeshEditor removed from here, now opens in a Window via WindowManager */}
                     </div>
                 </div>
             )}
