@@ -62,9 +62,16 @@ export const SelectionModule: EngineModule = {
   id: 'selection',
 
   init(ctx) {
-    registerCommands(ctx, 'selection', createSelectionCommands(ctx.engine, { emit: (e, p) => ctx.events.emit(e, p), notifyUI: () => ctx.engine.notifyUI() }));
+    registerCommands(ctx, 'selection', createSelectionCommands(ctx.engine, {
+      emit: (e, p) => {
+        // Avoid duplicate change events; the sync() below emits these based on engine notifications.
+        if (e === SELECTION_CHANGED || e === 'selection:subChanged') return;
+        ctx.events.emit(e as any, p as any);
+      },
+      notifyUI: () => ctx.engine.notifyUI()
+    }));
 
-    registerQueries(ctx, 'selection', createSelectionQueries(ctx.engine));
+    registerQueries(ctx, 'selection', createSelectionQueries(ctx.engine, undefined));
 
     let lastSelectionKey = '';
     let lastSubKey = '';

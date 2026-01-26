@@ -58,12 +58,16 @@ export function createSelectionCommands(engine: any, opts?: {
       if (mode === 'OBJECT') {
         const hits: string[] = engine.selectionSystem.selectEntitiesInRect(rect.x, rect.y, rect.w, rect.h);
 
-        let finalIds = hits;
+        const current = Array.from(engine.selectionSystem.selectedIndices)
+          .map((idx: number) => engine.ecs.store.ids[idx])
+          .filter(Boolean);
+
+        let finalIds: string[] = hits;
         if (action === 'ADD') {
-          const current = Array.from(engine.selectionSystem.selectedIndices)
-            .map((idx: number) => engine.ecs.store.ids[idx])
-            .filter(Boolean);
           finalIds = Array.from(new Set([...current, ...hits]));
+        } else if (action === 'REMOVE') {
+          const hitSet = new Set(hits);
+          finalIds = current.filter((id: string) => !hitSet.has(id));
         }
 
         engine.setSelected(finalIds);
@@ -71,12 +75,11 @@ export function createSelectionCommands(engine: any, opts?: {
       } else if (mode === 'VERTEX' || mode === 'UV') {
         const indices: number[] = engine.selectionSystem.selectVerticesInRect(rect.x, rect.y, rect.w, rect.h);
         const type = mode === 'UV' ? 'UV' : 'VERTEX';
+        const subAction = action === 'ADD' ? 'ADD' : action === 'REMOVE' ? 'REMOVE' : 'SET';
 
-        if (indices.length > 0) {
-          engine.selectionSystem.modifySubSelection(type, indices, action === 'ADD' ? 'ADD' : 'SET');
-          emit('selection:subChanged', undefined);
-        } else if (action === 'SET') {
-          engine.selectionSystem.modifySubSelection(type, [], 'SET');
+        // For SET, we want to clear even if nothing is hit.
+        if (indices.length > 0 || action === 'SET') {
+          engine.selectionSystem.modifySubSelection(type, indices, subAction);
           emit('selection:subChanged', undefined);
         }
       }
@@ -101,7 +104,7 @@ function getSelectedIdsFromEngine(engine: any): string[] {
   return ids;
 }
 
-export function createSelectionQueries(engine: any): SelectionQueries {
+export function createSelectionQueries(engine: any, _opts?: any): SelectionQueries {
   return {
     getSelectedIds() {
       return getSelectedIdsFromEngine(engine);

@@ -345,6 +345,52 @@ export class AssetViewportEngine implements IEngine {
         this.sceneGraph.update();
     }
 
+    createEntityFromAsset(assetId: string, pos: { x: number; y: number; z: number }): string | null {
+        // Simple implementation for local viewport if needed, or no-op
+        return null; 
+    }
+
+    deleteEntity(id: string, sceneGraph?: SceneGraph) {
+        this.pushUndoState();
+        if (this.skeletonEntityAssetMap.has(id)) {
+            this.skeletonEntityAssetMap.delete(id);
+        }
+        if (this.skeletonMap.has(id)) {
+            const bones = this.skeletonMap.get(id)!;
+            bones.forEach(bId => this.ecs.deleteEntity(bId, sceneGraph || this.sceneGraph));
+            this.skeletonMap.delete(id);
+        }
+        this.ecs.deleteEntity(id, sceneGraph || this.sceneGraph);
+        this.notifyUI();
+    }
+
+    duplicateEntity(id: string) {
+        const idx = this.ecs.idToIndex.get(id);
+        if (idx === undefined) return;
+        this.pushUndoState();
+        
+        const name = this.ecs.store.names[idx] + " (Copy)";
+        const newId = this.ecs.createEntity(name);
+        const newIdx = this.ecs.idToIndex.get(newId)!;
+        const store = this.ecs.store;
+        
+        store.componentMask[newIdx] = store.componentMask[idx];
+        store.posX[newIdx] = store.posX[idx];
+        store.posY[newIdx] = store.posY[idx];
+        store.posZ[newIdx] = store.posZ[idx];
+        store.rotX[newIdx] = store.rotX[idx];
+        store.rotY[newIdx] = store.rotY[idx];
+        store.rotZ[newIdx] = store.rotZ[idx];
+        store.scaleX[newIdx] = store.scaleX[idx];
+        store.scaleY[newIdx] = store.scaleY[idx];
+        store.scaleZ[newIdx] = store.scaleZ[idx];
+        store.meshType[newIdx] = store.meshType[idx];
+        store.materialIndex[newIdx] = store.materialIndex[idx];
+        
+        this.sceneGraph.registerEntity(newId);
+        this.notifyUI();
+    }
+
     // Helper to render mesh overlays (selection, vertices) matching MeshModule logic
     private renderMeshOverlays() {
         const selectedIndices = this.selectionSystem.selectedIndices;

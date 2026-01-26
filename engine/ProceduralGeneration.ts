@@ -1,4 +1,5 @@
 
+
 // services/ProceduralGeneration.ts
 
 class MeshBuilder {
@@ -193,6 +194,37 @@ export const ProceduralGeneration = {
             const sTip = b.addVert(0, halfH, 0, tipAvgNormalX, ny, tipAvgNormalZ, (i+0.5)/segments, 0);
             
             b.addTriangle(sBase1, sBase2, sTip);
+        }
+        return b.build();
+    },
+
+    createTorus: (radius: number = 0.35, tube: number = 0.15, radialSegments: number = 16, tubularSegments: number = 32) => {
+        const b = new MeshBuilder();
+        for (let j = 0; j <= radialSegments; j++) {
+            for (let i = 0; i <= tubularSegments; i++) {
+                const u = i / tubularSegments * Math.PI * 2;
+                const v = j / radialSegments * Math.PI * 2;
+
+                const center = { x: radius * Math.cos(v), y: 0, z: radius * Math.sin(v) };
+                const x = (radius + tube * Math.cos(u)) * Math.cos(v);
+                const z = (radius + tube * Math.cos(u)) * Math.sin(v);
+                const y = tube * Math.sin(u);
+
+                const n = { x: x - center.x, y: y, z: z - center.z };
+                const len = Math.sqrt(n.x*n.x + n.y*n.y + n.z*n.z);
+
+                b.addVert(x, y, z, n.x/len, n.y/len, n.z/len, i/tubularSegments, j/radialSegments);
+            }
+        }
+
+        for (let j = 1; j <= radialSegments; j++) {
+            for (let i = 1; i <= tubularSegments; i++) {
+                const a = (tubularSegments + 1) * j + i;
+                const b_ = (tubularSegments + 1) * j + i - 1;
+                const c = (tubularSegments + 1) * (j - 1) + i - 1;
+                const d = (tubularSegments + 1) * (j - 1) + i;
+                b.addQuad(a, b_, c, d);
+            }
         }
         return b.build();
     },

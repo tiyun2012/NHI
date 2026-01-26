@@ -268,6 +268,11 @@ const StaticMeshViewport: React.FC<{
       const rect = containerRef.current!.getBoundingClientRect();
       const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
 
+      if (e.button === 0 && !isAdjustingBrush && !e.altKey) {
+          gizmoSystem.update(0, mx, my, rect.width, rect.height, true, false);
+          if (gizmoSystem.activeAxis) return; 
+      }
+
       if (e.button === 2 && !e.altKey) {
           if (engine) {
               const hit = engine.selectionSystem.selectEntityAt(mx, my, rect.width, rect.height);
@@ -280,11 +285,11 @@ const StaticMeshViewport: React.FC<{
                   }
               }
           }
-          openPieMenu(e.clientX, e.clientY);
+          openPieMenu(e.clientX, e.clientY, undefined);
           return;
       }
 
-      if (e.button === 0 && !e.altKey) {
+      if (e.button === 0 && !isAdjustingBrush && !e.altKey) {
           gizmoSystem.update(0, mx, my, rect.width, rect.height, true, false);
           if (gizmoSystem.activeAxis) return;
 
@@ -316,6 +321,7 @@ const StaticMeshViewport: React.FC<{
       if (e.altKey) {
           let mode: DragState['mode'] = 'ORBIT';
           if (e.button === 1) mode = 'PAN'; if (e.button === 2) mode = 'ZOOM';
+          
           setDragState({ isDragging: true, startX: e.clientX, startY: e.clientY, mode, startCamera: { ...cameraRef.current } });
       }
     };
@@ -357,7 +363,7 @@ const StaticMeshViewport: React.FC<{
               const eyeX = ds.startCamera.radius * Math.sin(ds.startCamera.phi) * Math.cos(ds.startCamera.theta);
               const eyeY = ds.startCamera.radius * Math.cos(ds.startCamera.phi);
               const eyeZ = ds.startCamera.radius * Math.sin(ds.startCamera.phi) * Math.sin(ds.startCamera.theta);
-              const forward = Vec3Utils.normalize({x: -eyeX, y: -eyeY, z: -eyeZ}, {x:0,y:0,z:0});
+              const forward = Vec3Utils.normalize(Vec3Utils.scale({x:eyeX,y:eyeY,z:eyeZ}, -1, {x:0,y:0,z:0}), {x:0,y:0,z:0});
               const right = Vec3Utils.normalize(Vec3Utils.cross(forward, {x:0,y:1,z:0}, {x:0,y:0,z:0}));
               const camUp = Vec3Utils.normalize(Vec3Utils.cross(right, forward, {x:0,y:0,z:0}), {x:0,y:0,z:0});
               const moveX = Vec3Utils.scale(right, -dx * panSpeed, {x:0,y:0,z:0});
@@ -496,7 +502,14 @@ export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) =>
             selection: createSelectionCommands(engine, { notifyUI: () => engine.notifyUI(), emit: (e, p) => engine.events.emit(e, p) }),
             mesh: {
                 setComponentMode: (m) => vpState.setMeshComponentMode(m),
-                updateAssetGeometry: (aid, geo) => engine.notifyMeshGeometryChanged(engine.entityId!)
+                updateAssetGeometry: (aid, geo) => {
+                    const asset = assetManager.getAsset(aid);
+                    if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+                        // Apply patch to AssetManager so engine picks it up
+                        Object.assign((asset as any).geometry, geo);
+                        engine.notifyMeshGeometryChanged(engine.entityId!);
+                    }
+                }
             },
             modeling: {
                 extrudeFaces: () => {}, bevelEdges: () => {}, weldVertices: () => {}, connectComponents: () => {}, deleteSelectedFaces: () => {}
@@ -515,26 +528,27 @@ export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) =>
                 setFocusedWidget: (id) => dockContext.setFocusedWidgetId(id),
                 notify: () => engine.notifyUI(),
                 // partial implementation
-                registerSection: () => {},
-                registerWindow: () => {}
+                registerSection: (_loc, _cfg) => {},
+                registerWindow: (_cfg) => {}
             },
             scene: {
                  // partial scene commands needed for pie menu?
-                createEntity: () => '',
-                deleteEntity: () => {},
-                duplicateEntity: () => {},
-                renameEntity: () => {},
-                reparentEntity: () => {},
-                addComponent: () => {},
-                removeComponent: () => {},
-                createEntityFromAsset: () => null,
-                loadSceneFromAsset: () => {}
+                createEntity: (_name) => '',
+                deleteEntity: (_id) => {},
+                duplicateEntity: (_id) => {},
+                renameEntity: (_id, _name) => {},
+                reparentEntity: (_child, _parent) => {},
+                addComponent: (_id, _type) => {},
+                removeComponent: (_id, _type) => {},
+                createEntityFromAsset: (_aid, _pos) => null,
+                loadSceneFromAsset: (_aid) => {}
             },
             simulation: { setMode: () => {} },
             history: { pushState: () => {}, undo: () => {}, redo: () => {} }
         };
 
         const queries: Partial<EngineQueries> = {
+            // FIX: Correctly nest the selection queries so `api.queries.selection.getSubSelection` works.
             selection: createSelectionQueries(engine),
             mesh: {
                 getAssetByEntity: (eid) => {

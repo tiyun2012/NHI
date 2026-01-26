@@ -5,103 +5,114 @@ import { Icon } from './Icon';
 import { assetManager, RIG_TEMPLATES } from '@/engine/AssetManager';
 import { EditorContext } from '@/editor/state/EditorContext';
 import { WindowManagerContext } from './WindowManager';
-import { MATERIAL_TEMPLATES } from '@/engine/MaterialTemplates';
 import { engineInstance } from '@/engine/engine';
 import { NodeGraph } from './NodeGraph';
 import { ImportWizard } from './ImportWizard';
 import { StaticMeshEditor } from './StaticMeshEditor';
-import { consoleService } from '@/engine/Console';
 import { Asset, AssetType } from '@/types';
 import { eventBus } from '@/engine/EventBus';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { projectSystem } from '@/engine/ProjectSystem';
+
+// Framework Imports
+import { TreeView, TreeNode } from './framework/TreeView';
+import { ItemView, ItemData } from './framework/ItemView';
 
 type ViewMode = 'GRID' | 'LIST';
 
-const getSubFolders = (assets: Asset[], path: string) => {
-    return assets.filter(a => a.type === 'FOLDER' && a.path === path);
+const getFormatBadge = (type: AssetType): string => {
+    switch (type) {
+        case 'MESH': return 'GEO';
+        case 'SKELETAL_MESH': return 'SKEL';
+        case 'MATERIAL': return 'MAT';
+        case 'TEXTURE': return 'TEX';
+        case 'SCRIPT': return 'JS';
+        case 'RIG': return 'RIG';
+        case 'SCENE': return 'MAP';
+        case 'PHYSICS_MATERIAL': return 'PHY';
+        case 'SKELETON': return 'BONE';
+        default: return '';
+    }
 };
 
-const AssetItem: React.FC<{ 
-    asset: Asset; 
-    selected: boolean; 
-    onSelect: (multi: boolean) => void; 
-    onDoubleClick: () => void;
-    onContextMenu: (e: React.MouseEvent) => void;
-    viewMode: ViewMode;
-    renaming: boolean;
-    onRename: (newName: string) => void;
-}> = ({ asset, selected, onSelect, onDoubleClick, onContextMenu, viewMode, renaming, onRename }) => {
-    const [tempName, setTempName] = useState(asset.name);
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        if (renaming && inputRef.current) {
-            inputRef.current.focus();
-            inputRef.current.select();
-        }
-    }, [renaming]);
-
-    const iconName = asset.type === 'FOLDER' ? 'Folder' : (
-        asset.type === 'MATERIAL' ? 'Palette' : (
-        asset.type === 'MESH' ? 'Box' : (
-        asset.type === 'SKELETAL_MESH' ? 'PersonStanding' : (
-        asset.type === 'TEXTURE' ? 'Image' : (
-        asset.type === 'SCRIPT' ? 'FileCode' : (
-        asset.type === 'RIG' ? 'GitBranch' : (
-        asset.type === 'SCENE' ? 'Clapperboard' : 'File'
+const getAssetIcon = (type: AssetType): string => {
+    return type === 'FOLDER' ? 'Folder' : (
+        type === 'MATERIAL' ? 'Palette' : (
+        type === 'MESH' ? 'Box' : (
+        type === 'SKELETAL_MESH' ? 'PersonStanding' : (
+        type === 'TEXTURE' ? 'Image' : (
+        type === 'SCRIPT' ? 'FileCode' : (
+        type === 'RIG' ? 'GitBranch' : (
+        type === 'SCENE' ? 'Clapperboard' : 
+        type === 'SKELETON' ? 'Bone' : 'File'
     )))))));
+};
 
-    const color = asset.type === 'FOLDER' ? 'text-yellow-500' : (
-        asset.type === 'MATERIAL' ? 'text-emerald-400' : (
-        asset.type === 'MESH' ? 'text-blue-400' : (
-        asset.type === 'SKELETAL_MESH' ? 'text-purple-400' : 'text-text-secondary'
+const getAssetColor = (type: AssetType): string => {
+    return type === 'FOLDER' ? 'text-yellow-500' : (
+        type === 'MATERIAL' ? 'text-emerald-400' : (
+        type === 'MESH' ? 'text-blue-400' : (
+        type === 'SKELETAL_MESH' ? 'text-purple-400' : 'text-text-secondary'
     )));
+};
 
-    return (
-        <div 
-            className={`group relative flex ${viewMode === 'GRID' ? 'flex-col items-center p-2' : 'flex-row items-center px-2 py-1'} rounded cursor-pointer transition-colors border border-transparent
-                ${selected ? 'bg-accent/20 border-accent/50' : 'hover:bg-white/5 hover:border-white/5'}
-            `}
-            onClick={(e) => {
-                e.stopPropagation();
-                onSelect(e.shiftKey || e.ctrlKey);
-            }}
-            onDoubleClick={(e) => {
-                e.stopPropagation();
-                onDoubleClick();
-            }}
-            onContextMenu={onContextMenu}
-            draggable={asset.type !== 'FOLDER'}
-            onDragStart={(e) => e.dataTransfer.setData('application/ti3d-asset', asset.id)}
-        >
-            <div className={`${viewMode === 'GRID' ? 'w-12 h-12 mb-2 bg-black/20' : 'w-6 h-6 mr-3'} rounded flex items-center justify-center shrink-0`}>
-                {asset.type === 'TEXTURE' ? (
-                    <img src={(asset as any).source} className="w-full h-full object-cover rounded" />
-                ) : (
-                    <Icon name={iconName as any} size={viewMode === 'GRID' ? 24 : 14} className={color} />
-                )}
-            </div>
-            
-            {renaming ? (
-                <input 
-                    ref={inputRef}
-                    className="bg-black/80 border border-accent text-white text-xs px-1 rounded outline-none w-full text-center"
-                    value={tempName}
-                    onChange={(e) => setTempName(e.target.value)}
-                    onBlur={() => onRename(tempName)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') onRename(tempName);
-                        if (e.key === 'Escape') onRename(asset.name); // Cancel
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                />
-            ) : (
-                <span className={`text-xs text-center truncate w-full ${selected ? 'text-white font-bold' : 'text-text-primary group-hover:text-white'}`}>
-                    {asset.name}
-                </span>
-            )}
-        </div>
-    );
+// Map assets to generic TreeNodes
+const buildFolderTree = (assets: Asset[], rootPrefix: string): TreeNode[] => {
+    // Filter folders that are part of the target hierarchy (starts with rootPrefix)
+    const folders = assets.filter(a => {
+        if (a.type !== 'FOLDER') return false;
+        const fullPath = (a.path === '/' ? '' : a.path) + '/' + a.name;
+        // Include root prefix itself (if it matches an asset name) or children
+        return fullPath === rootPrefix || fullPath.startsWith(rootPrefix + '/');
+    });
+    
+    // Create map for easy lookup
+    const map = new Map<string, TreeNode>();
+    
+    // Create nodes
+    folders.forEach(f => {
+        const fullPath = (f.path === '/' ? '' : f.path) + '/' + f.name;
+        map.set(fullPath, {
+            id: fullPath, 
+            label: f.name,
+            icon: 'Folder',
+            iconColor: 'text-yellow-500',
+            data: f,
+            children: []
+        });
+    });
+
+    const roots: TreeNode[] = [];
+    
+    // Link nodes
+    folders.forEach(f => {
+        const fullPath = (f.path === '/' ? '' : f.path) + '/' + f.name;
+        const node = map.get(fullPath);
+        
+        if (node) {
+            if (fullPath === rootPrefix) {
+                 roots.push(node);
+            } else {
+                 // Try to find parent in map. Parent path is f.path.
+                 // Note: f.path for "/Content/Materials" is "/Content".
+                 const parentNode = map.get(f.path);
+                 if (parentNode) {
+                     parentNode.children!.push(node);
+                 } else if (f.path === '/') {
+                     // If parent is root '/', and it's not in map (shouldn't happen for prefixes), treat as root
+                     // But we are filtering by prefix, so if prefix is /Content, we expect /Content to be root.
+                 }
+            }
+        }
+    });
+
+    // Sort
+    const sortNodes = (nodes: TreeNode[]) => {
+        nodes.sort((a, b) => a.label.localeCompare(b.label));
+        nodes.forEach(n => sortNodes(n.children!));
+    };
+    sortNodes(roots);
+    return roots;
 };
 
 export const ProjectPanel: React.FC = () => {
@@ -115,35 +126,61 @@ export const ProjectPanel: React.FC = () => {
     const [search, setSearch] = useState('');
     const [showImport, setShowImport] = useState(false);
     
-    // Context Menu State
+    const [sidebarWidth, setSidebarWidth] = useState(200);
+    const isResizing = useRef(false);
+    
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, type: 'BG' | 'ASSET', assetId?: string } | null>(null);
     const [renamingId, setRenamingId] = useState<string | null>(null);
 
-    // Editors (Inline) - Only for simple types if needed, otherwise use Window Manager
     const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
 
-    // Refresh assets
-    const refresh = () => {
-        setAssets(assetManager.getAllAssets());
-    };
+    const refresh = () => setAssets(assetManager.getAllAssets());
 
     useEffect(() => {
         refresh();
-        const unsub1 = eventBus.on('ASSET_CREATED', refresh);
-        const unsub2 = eventBus.on('ASSET_DELETED', refresh);
-        const unsub3 = eventBus.on('ASSET_UPDATED', refresh);
-        return () => { unsub1(); unsub2(); unsub3(); };
+        const u1 = eventBus.on('ASSET_CREATED', refresh);
+        const u2 = eventBus.on('ASSET_DELETED', refresh);
+        const u3 = eventBus.on('ASSET_UPDATED', refresh);
+        
+        // Reset path to Content on project clear
+        const u4 = eventBus.on('PROJECT_RESET', () => {
+            refresh();
+            setCurrentPath('/Content');
+            setSelectedAssetIds([]);
+        });
+        
+        // Navigate to new project root when opened
+        const u5 = eventBus.on('PROJECT_OPENED', (payload: any) => {
+             refresh();
+             if (payload.rootPath) setCurrentPath(payload.rootPath);
+             setSelectedAssetIds([]);
+        });
+        
+        return () => { u1(); u2(); u3(); u4(); u5(); };
     }, []);
 
-    // Close Context Menu
     useEffect(() => {
         const close = () => setContextMenu(null);
         window.addEventListener('click', close);
         return () => window.removeEventListener('click', close);
     }, []);
 
-    const filteredAssets = useMemo(() => {
-        return assets.filter(a => {
+    const contentTree = useMemo(() => buildFolderTree(assets, '/Content'), [assets]);
+    const engineTree = useMemo(() => buildFolderTree(assets, '/Engine'), [assets]);
+    
+    // Dynamic tree for custom project roots (if user opens a folder outside Content/Engine)
+    const customTree = useMemo(() => {
+        // Find roots that are NOT /Content or /Engine
+        const customRoots = assets.filter(a => a.type === 'FOLDER' && a.path === '/' && a.name !== 'Content' && a.name !== 'Engine');
+        if (customRoots.length > 0) {
+            return customRoots.flatMap(r => buildFolderTree(assets, `/${r.name}`));
+        }
+        return [];
+    }, [assets]);
+
+    // Map filtered assets to ItemView Data
+    const displayItems = useMemo<ItemData[]>(() => {
+        const filtered = assets.filter(a => {
             if (search) return a.name.toLowerCase().includes(search.toLowerCase());
             return a.path === currentPath;
         }).sort((a, b) => {
@@ -151,6 +188,30 @@ export const ProjectPanel: React.FC = () => {
             if (a.type !== 'FOLDER' && b.type === 'FOLDER') return 1;
             return a.name.localeCompare(b.name);
         });
+        
+        // Add ".." if applicable
+        const items: ItemData[] = [];
+        if (currentPath !== '/Content' && currentPath !== '/Engine' && !search && currentPath !== '/') {
+             items.push({
+                 id: '__UP__',
+                 label: '..',
+                 icon: 'Folder',
+                 iconColor: 'text-text-secondary opacity-50',
+                 data: { type: 'NAV_UP' }
+             });
+        }
+
+        items.push(...filtered.map(a => ({
+            id: a.id,
+            label: a.name,
+            icon: getAssetIcon(a.type),
+            iconColor: getAssetColor(a.type),
+            badge: getFormatBadge(a.type),
+            previewUrl: a.type === 'TEXTURE' ? (a as any).source : undefined,
+            data: a
+        })));
+        
+        return items;
     }, [assets, currentPath, search]);
 
     const handleNavigate = (path: string) => {
@@ -174,18 +235,22 @@ export const ProjectPanel: React.FC = () => {
         if (type === 'SKELETON') assetManager.createSkeleton('New Skeleton', currentPath);
     };
 
-    const handleOpen = (asset: Asset) => {
+    const handleOpen = (id: string) => {
+        if (id === '__UP__') {
+            handleNavigate(currentPath.split('/').slice(0, -1).join('/') || '/');
+            return;
+        }
+
+        const asset = assetManager.getAsset(id);
+        if (!asset) return;
+
         if (asset.type === 'FOLDER') {
             handleNavigate(`${currentPath === '/' ? '' : currentPath}/${asset.name}`);
-        } 
-        else if (asset.type === 'MATERIAL' || asset.type === 'SCRIPT' || asset.type === 'RIG') {
-            setEditingAsset(asset); // Keep simple node editors inline for now
-        } 
-        else if (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH') {
-            // Standalone Window for Mesh Editing
+        } else if (asset.type === 'MATERIAL' || asset.type === 'SCRIPT' || asset.type === 'RIG') {
+            setEditingAsset(asset);
+        } else if (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH') {
             if (wm) {
                 const winId = `asset_editor_${asset.id}`;
-                // Use atomic open-with-register to prevent z-order race conditions
                 wm.openWindow(winId, {
                     id: winId,
                     title: `Editing: ${asset.name}`,
@@ -196,8 +261,7 @@ export const ProjectPanel: React.FC = () => {
                     initialPosition: { x: window.innerWidth / 2 - 450, y: window.innerHeight / 2 - 300 }
                 });
             }
-        } 
-        else if (asset.type === 'SCENE') {
+        } else if (asset.type === 'SCENE') {
             if (confirm("Load Scene? Unsaved changes will be lost.")) {
                 api.commands.scene.loadSceneFromAsset(asset.id);
             }
@@ -212,10 +276,14 @@ export const ProjectPanel: React.FC = () => {
     };
 
     const handleRename = (id: string, newName: string) => {
-        if (newName.trim()) {
-            assetManager.renameAsset(id, newName.trim());
-        }
+        if (newName.trim()) assetManager.renameAsset(id, newName.trim());
         setRenamingId(null);
+    };
+
+    const handleOpenProject = () => {
+        if (confirm("Opening a new project will clear the current session. Continue?")) {
+            projectSystem.openProject();
+        }
     };
 
     const pathParts = currentPath.split('/').filter(Boolean);
@@ -223,8 +291,11 @@ export const ProjectPanel: React.FC = () => {
     return (
         <div className="h-full flex flex-col bg-[#1a1a1a] text-xs font-sans relative" onContextMenu={(e) => e.preventDefault()}>
             {/* Toolbar */}
-            <div className="flex items-center justify-between p-2 border-b border-white/5 bg-panel-header">
+            <div className="flex items-center justify-between p-2 border-b border-white/5 bg-panel-header shrink-0">
                 <div className="flex items-center gap-2">
+                    <button onClick={handleOpenProject} className="flex items-center gap-1 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded transition-colors" title="Open Local Folder">
+                        <Icon name="FolderOpen" size={12} /> Open
+                    </button>
                     <button onClick={() => setShowImport(true)} className="flex items-center gap-1 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded transition-colors shadow-sm">
                         <Icon name="Upload" size={12} /> Import
                     </button>
@@ -249,85 +320,96 @@ export const ProjectPanel: React.FC = () => {
                 </div>
             </div>
 
-            {/* Breadcrumb */}
-            <div className="flex items-center px-3 py-1.5 border-b border-white/5 bg-black/10 gap-1 overflow-x-auto custom-scrollbar">
-                <button 
-                    onClick={() => handleNavigate('/Content')} 
-                    className={`flex items-center gap-1 hover:text-white ${currentPath === '/Content' ? 'text-white font-bold' : 'text-text-secondary'}`}
-                >
-                    <Icon name="Home" size={10} /> Content
-                </button>
-                {pathParts.slice(1).map((part, i) => (
-                    <React.Fragment key={i}>
-                        <Icon name="ChevronRight" size={10} className="text-text-secondary opacity-50" />
-                        <button 
-                            onClick={() => handleBreadcrumb(i + 1)}
-                            className={`hover:text-white ${i === pathParts.length - 2 ? 'text-white font-bold' : 'text-text-secondary'}`}
-                        >
-                            {part}
-                        </button>
-                    </React.Fragment>
-                ))}
-            </div>
-
-            {/* Grid Area */}
-            <div 
-                className="flex-1 overflow-y-auto p-2 custom-scrollbar"
-                onClick={() => setSelectedAssetIds([])}
-                onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, type: 'BG' });
-                }}
-            >
-                <div className={viewMode === 'GRID' ? 'grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] gap-2' : 'flex flex-col gap-1'}>
-                    {currentPath !== '/Content' && !search && (
-                        <div 
-                            className={`group flex ${viewMode === 'GRID' ? 'flex-col items-center p-2' : 'flex-row items-center px-2 py-1'} rounded cursor-pointer hover:bg-white/5 border border-transparent`}
-                            onDoubleClick={() => handleNavigate(currentPath.split('/').slice(0, -1).join('/') || '/')}
-                        >
-                            <div className={`${viewMode === 'GRID' ? 'w-12 h-12 mb-2 bg-black/20' : 'w-6 h-6 mr-3'} rounded flex items-center justify-center`}>
-                                <Icon name="Folder" size={viewMode === 'GRID' ? 24 : 14} className="text-text-secondary opacity-50" />
-                            </div>
-                            <span className="text-xs text-text-secondary">..</span>
-                        </div>
+            {/* Main Content */}
+            <div className="flex-1 flex overflow-hidden">
+                {/* Sidebar */}
+                <div className="flex flex-col border-r border-white/5 bg-black/20 overflow-y-auto custom-scrollbar shrink-0" style={{ width: sidebarWidth }}>
+                    {/* Opened Project Root(s) */}
+                    {customTree.length > 0 && (
+                        <>
+                             <div className="p-2 font-bold text-text-secondary uppercase text-[10px] tracking-wider mb-0.5 sticky top-0 bg-[#1e1e1e] border-b border-white/5 z-10">Local Project</div>
+                             <TreeView 
+                                data={customTree} 
+                                selectedIds={[currentPath]} 
+                                onSelect={(ids) => handleNavigate(ids[0])}
+                                className="mb-4"
+                             />
+                        </>
                     )}
-                    
-                    {filteredAssets.map(asset => (
-                        <AssetItem 
-                            key={asset.id} 
-                            asset={asset} 
-                            viewMode={viewMode}
-                            selected={selectedAssetIds.includes(asset.id)}
-                            renaming={renamingId === asset.id}
-                            onRename={(name) => handleRename(asset.id, name)}
-                            onSelect={(multi) => {
-                                // REMOVED auto-opening Inspector here to prevent it from covering new windows
-                                // The Inspector will still update its content via context if it is already open.
-                                if (multi) setSelectedAssetIds([...selectedAssetIds, asset.id]);
-                                else setSelectedAssetIds([asset.id]);
-                                setInspectedNode(null); // Clear graph selection
-                            }}
-                            onDoubleClick={() => handleOpen(asset)}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setContextMenu({ x: e.clientX, y: e.clientY, type: 'ASSET', assetId: asset.id });
-                                setSelectedAssetIds([asset.id]);
-                            }}
-                        />
-                    ))}
+
+                    <div className="p-2 font-bold text-text-secondary uppercase text-[10px] tracking-wider mb-0.5 sticky top-0 bg-[#1e1e1e] border-b border-white/5 z-10 border-t">Assets</div>
+                    <TreeView 
+                        data={contentTree} 
+                        selectedIds={[currentPath]} 
+                        onSelect={(ids) => handleNavigate(ids[0])} // TreeNode ID is the path here
+                        className="mb-4"
+                    />
+                    <div className="p-2 font-bold text-text-secondary uppercase text-[10px] tracking-wider mb-0.5 sticky top-0 bg-[#1e1e1e] border-b border-white/5 z-10 border-t">Engine</div>
+                    <TreeView 
+                        data={engineTree} 
+                        selectedIds={[currentPath]} 
+                        onSelect={(ids) => handleNavigate(ids[0])}
+                    />
                 </div>
-                
-                {/* Empty State Hint */}
-                {filteredAssets.length === 0 && currentPath !== '/Content' && (
-                    <div className="flex flex-col items-center justify-center h-full text-text-secondary opacity-20 pointer-events-none select-none">
-                        <Icon name="MousePointer2" size={32} />
-                        <span className="mt-2 text-[10px]">Right-click to create assets</span>
+
+                {/* Resizer */}
+                <div className="w-1 bg-transparent hover:bg-accent/50 cursor-ew-resize transition-colors z-10"
+                    onMouseDown={(e) => { 
+                        const startX = e.clientX; const startW = sidebarWidth;
+                        const onMove = (m: MouseEvent) => setSidebarWidth(Math.max(150, Math.min(600, startW + (m.clientX - startX))));
+                        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                        window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+                    }}
+                />
+
+                {/* Right Grid */}
+                <div className="flex-1 flex flex-col min-w-0 bg-[#151515]">
+                    {/* Breadcrumb */}
+                    <div className="flex items-center px-3 py-1.5 border-b border-white/5 bg-black/10 gap-1 overflow-x-auto custom-scrollbar shrink-0">
+                        <Icon name="Home" size={10} className="text-text-secondary opacity-70" />
+                        {pathParts.map((part, i) => (
+                            <React.Fragment key={i}>
+                                {i > 0 && <Icon name="ChevronRight" size={10} className="text-text-secondary opacity-50" />}
+                                <button onClick={() => handleBreadcrumb(i)} className={`hover:text-white ${i===pathParts.length-1?'text-white font-bold':'text-text-secondary'}`}>{part}</button>
+                            </React.Fragment>
+                        ))}
                     </div>
-                )}
+
+                    {/* Item View */}
+                    <div 
+                        className="flex-1 overflow-y-auto p-0 custom-scrollbar"
+                        onClick={() => setSelectedAssetIds([])}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, type: 'BG' });
+                        }}
+                    >
+                        <ItemView 
+                            items={displayItems}
+                            viewMode={viewMode}
+                            selectedIds={selectedAssetIds}
+                            renamingId={renamingId}
+                            onSelect={(id, multi) => {
+                                if (id === '__UP__') return;
+                                if (multi) setSelectedAssetIds([...selectedAssetIds, id]);
+                                else setSelectedAssetIds([id]);
+                                setInspectedNode(null); 
+                            }}
+                            onAction={handleOpen}
+                            onContextMenu={(e, id) => {
+                                if (id === '__UP__') return;
+                                setContextMenu({ x: e.clientX, y: e.clientY, type: 'ASSET', assetId: id });
+                                setSelectedAssetIds([id]);
+                            }}
+                            onRename={handleRename}
+                            draggable={true}
+                            emptyText="Right-click to create items"
+                        />
+                    </div>
+                </div>
             </div>
 
-            {/* Modals */}
+            {/* Modals & Context Menus */}
             {showImport && (
                 <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-8">
                     <div className="w-full max-w-lg h-[500px] bg-panel border border-white/10 rounded-lg shadow-2xl flex flex-col overflow-hidden">
@@ -335,16 +417,11 @@ export const ProjectPanel: React.FC = () => {
                             <span className="font-bold text-white">Import Asset</span>
                             <button onClick={() => setShowImport(false)}><Icon name="X" size={16} /></button>
                         </div>
-                        <ImportWizard 
-                            onClose={() => setShowImport(false)} 
-                            onImportSuccess={(id) => {
+                        <ImportWizard onClose={() => setShowImport(false)} onImportSuccess={(id) => {
                                 const asset = assetManager.getAsset(id);
-                                if (asset && asset.type !== 'FOLDER') {
-                                    asset.path = currentPath;
-                                }
+                                if (asset && asset.type !== 'FOLDER') asset.path = currentPath;
                                 refresh();
-                            }} 
-                        />
+                        }} />
                     </div>
                 </div>
             )}
@@ -352,90 +429,36 @@ export const ProjectPanel: React.FC = () => {
             {editingAsset && (
                 <div className="absolute inset-0 bg-[#101010] z-[60] flex flex-col animate-in fade-in zoom-in-95 duration-150">
                     <div className="h-8 bg-panel-header border-b border-white/10 flex items-center justify-between px-3 shrink-0">
-                        <div className="flex items-center gap-2 font-bold text-white">
-                            <Icon name="Edit" size={14} className="text-accent" />
-                            {editingAsset.name}
-                        </div>
-                        <button onClick={() => setEditingAsset(null)} className="p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white">
-                            <Icon name="X" size={16} />
-                        </button>
+                        <div className="flex items-center gap-2 font-bold text-white"><Icon name="Edit" size={14} className="text-accent" />{editingAsset.name}</div>
+                        <button onClick={() => setEditingAsset(null)} className="p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white"><Icon name="X" size={16} /></button>
                     </div>
-                    <div className="flex-1 overflow-hidden relative">
-                        {(editingAsset.type === 'MATERIAL' || editingAsset.type === 'SCRIPT' || editingAsset.type === 'RIG') && (
-                            <NodeGraph assetId={editingAsset.id} />
-                        )}
-                    </div>
+                    <div className="flex-1 overflow-hidden relative"><NodeGraph assetId={editingAsset.id} /></div>
                 </div>
             )}
 
-            {/* CONTEXT MENU */}
             {contextMenu && createPortal(
-                <div 
-                    className="fixed bg-[#252525] border border-white/10 shadow-2xl rounded py-1 min-w-[160px] text-xs z-[9999]"
-                    style={{ left: contextMenu.x, top: contextMenu.y }}
-                    onClick={(e) => e.stopPropagation()}
-                >
+                <div className="fixed bg-[#252525] border border-white/10 shadow-2xl rounded py-1 min-w-[160px] text-xs z-[9999]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
                     {contextMenu.type === 'BG' && (
                         <>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" onClick={() => { handleCreate('FOLDER'); setContextMenu(null); }}>
-                                <Icon name="FolderPlus" size={14} /> New Folder
-                            </div>
+                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" onClick={() => { handleCreate('FOLDER'); setContextMenu(null); }}><Icon name="FolderPlus" size={14} /> New Folder</div>
                             <div className="border-t border-white/10 my-1"></div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('SCENE'); setContextMenu(null); }}>Scene</div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('MATERIAL'); setContextMenu(null); }}>Material</div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('SCRIPT'); setContextMenu(null); }}>Script</div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('RIG'); setContextMenu(null); }}>Rig</div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('PHYSICS_MATERIAL'); setContextMenu(null); }}>Physics Material</div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate('SKELETON'); setContextMenu(null); }}>Skeleton</div>
+                            {['SCENE', 'MATERIAL', 'SCRIPT', 'RIG', 'PHYSICS_MATERIAL', 'SKELETON'].map(t => (
+                                <div key={t} className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer" onClick={() => { handleCreate(t as AssetType); setContextMenu(null); }}>{t}</div>
+                            ))}
                         </>
                     )}
-
                     {contextMenu.type === 'ASSET' && contextMenu.assetId && (
                         <>
-                            {(() => {
-                                const a = assetManager.getAsset(contextMenu.assetId);
-                                const canPlace = a && (a.type === 'MESH' || a.type === 'SKELETAL_MESH' || a.type === 'SKELETON');
-                                if (canPlace) return (
-                                    <>
-                                        <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" 
-                                            onClick={() => { 
-                                                const newId = api.commands.scene.createEntityFromAsset(contextMenu.assetId!, { x: 0, y: 0, z: 0 });
-                                                if (newId) {
-                                                    api.commands.selection.setSelected([newId]);
-                                                }
-                                                setContextMenu(null);
-                                            }}>
-                                            <Icon name="PlusSquare" size={14} /> Place in Scene
-                                        </div>
-                                        <div className="border-t border-white/10 my-1"></div>
-                                    </>
-                                );
-                                return null;
-                            })()}
-                            
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" 
-                                onClick={() => { 
-                                    setRenamingId(contextMenu.assetId!);
-                                    setContextMenu(null);
-                                }}>
-                                <Icon name="Edit2" size={14} /> Rename
-                            </div>
-                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" 
-                                onClick={() => { 
-                                    assetManager.duplicateAsset(contextMenu.assetId!);
-                                    setContextMenu(null);
-                                    refresh();
-                                }}>
-                                <Icon name="Copy" size={14} /> Duplicate
-                            </div>
+                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" onClick={() => { 
+                                const newId = api.commands.scene.createEntityFromAsset(contextMenu.assetId!, { x: 0, y: 0, z: 0 });
+                                if (newId) api.commands.selection.setSelected([newId]);
+                                setContextMenu(null);
+                            }}><Icon name="PlusSquare" size={14} /> Place in Scene</div>
                             <div className="border-t border-white/10 my-1"></div>
-                            <div className="px-3 py-1.5 hover:bg-red-500/20 hover:text-red-400 cursor-pointer flex items-center gap-2" 
-                                onClick={() => {
-                                    handleDelete(contextMenu.assetId!);
-                                    setContextMenu(null);
-                                }}>
-                                <Icon name="Trash2" size={14} /> Delete
-                            </div>
+                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" onClick={() => { setRenamingId(contextMenu.assetId!); setContextMenu(null); }}><Icon name="Edit2" size={14} /> Rename</div>
+                            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2" onClick={() => { assetManager.duplicateAsset(contextMenu.assetId!); setContextMenu(null); refresh(); }}><Icon name="Copy" size={14} /> Duplicate</div>
+                            <div className="border-t border-white/10 my-1"></div>
+                            <div className="px-3 py-1.5 hover:bg-red-500/20 hover:text-red-400 cursor-pointer flex items-center gap-2" onClick={() => { handleDelete(contextMenu.assetId!); setContextMenu(null); }}><Icon name="Trash2" size={14} /> Delete</div>
                         </>
                     )}
                 </div>,

@@ -1,7 +1,8 @@
 
+
 export const INITIAL_CAPACITY = 10000;
-export const MESH_TYPES: Record<string, number> = { 'None': 0, 'Cube': 1, 'Sphere': 2, 'Plane': 3, 'Cylinder': 4, 'Cone': 5 };
-export const MESH_NAMES: Record<number, string> = { 0: 'None', 1: 'Cube', 2: 'Sphere', 3: 'Plane', 4: 'Cylinder', 5: 'Cone' };
+export const MESH_TYPES: Record<string, number> = { 'None': 0, 'Cube': 1, 'Sphere': 2, 'Plane': 3, 'Cylinder': 4, 'Cone': 5, 'Torus': 6 };
+export const MESH_NAMES: Record<number, string> = { 0: 'None', 1: 'Cube', 2: 'Sphere', 3: 'Plane', 4: 'Cylinder', 5: 'Cone', 6: 'Torus' };
 
 export const ROTATION_ORDERS: string[] = ['XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX'];
 export const ROTATION_ORDER_MAP: Record<string, number> = { 

@@ -9,6 +9,7 @@ import { SculptModule } from '@/features/sculpt/SculptModule';
 import { ModelingModule } from '@/features/modeling/ModelingModule';
 import { SkeletonModule } from '@/features/skeleton/SkeletonModule';
 import { UVEditorModule } from '@/features/uv-editor/UVEditorModule';
+import { AIModule } from '@/features/ai/AIModule';
 
 export const MODULES: readonly EngineModule[] = [
   CoreModule,
@@ -19,5 +20,6 @@ export const MODULES: readonly EngineModule[] = [
   SculptModule,
   ModelingModule,
   SkeletonModule,
-  UVEditorModule
+  UVEditorModule,
+  AIModule
 ];

@@ -1,4 +1,5 @@
 
+
 import { StaticMeshAsset, SkeletalMeshAsset, SkeletonAsset, MaterialAsset, PhysicsMaterialAsset, ScriptAsset, RigAsset, TextureAsset, SceneAsset, GraphNode, GraphConnection, Asset, LogicalMesh, FolderAsset, BoneData } from '@/types';
 import { MaterialTemplate, MATERIAL_TEMPLATES } from './MaterialTemplates';
 import { MESH_TYPES } from './constants';
@@ -81,7 +82,33 @@ class AssetManagerService {
         this.createScript('New Visual Script');
         this.createRig('Locomotion IK Logic', RIG_TEMPLATES[0]);
     }
+    
+    clear() {
+        this.assets.clear();
+        this.meshIntToUuid.clear();
+        this.meshUuidToInt.clear();
+        this.matIntToUuid.clear();
+        this.matUuidToInt.clear();
+        this.physMatIntToUuid.clear();
+        this.physMatUuidToInt.clear();
+        this.rigIntToUuid.clear();
+        this.rigUuidToInt.clear();
+        
+        this.nextMeshIntId = 100;
+        this.nextMatIntId = 1;
+        this.nextPhysMatIntId = 1;
+        this.nextRigIntId = 1;
+        this.nextTextureLayerId = 4;
+        
+        // Re-register defaults (Engine internals)
+        this.registerDefaultAssets();
+        this.createMaterial('Standard', MATERIAL_TEMPLATES[0], '/Engine/Materials');
+        
+        // Notify listeners that a full reset happened
+        eventBus.emit('PROJECT_RESET', null);
+    }
 
+    // ... (computeAABB, computeSiblings, createDefaultPhysicsMaterials, updatePhysicsMaterial, renameAsset, createFolder, saveMaterial, saveScript, duplicateAsset, deleteAsset, registerAsset methods remain unchanged)
     private computeAABB(vertices: Float32Array) {
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -98,7 +125,6 @@ class AssetManagerService {
         };
     }
 
-    // Helper to identify coincident vertices
     private computeSiblings(vertices: Float32Array | number[]): Map<number, number[]> {
         const siblings = new Map<number, number[]>();
         const posMap = new Map<string, number[]>();
@@ -107,7 +133,6 @@ class AssetManagerService {
         const count = v.length / 3;
 
         for(let i=0; i<count; i++) {
-            // Quantize to merge close vertices
             const x = Math.round(v[i*3] * 10000);
             const y = Math.round(v[i*3+1] * 10000);
             const z = Math.round(v[i*3+2] * 10000);
@@ -129,9 +154,9 @@ class AssetManagerService {
     }
 
     private createDefaultPhysicsMaterials() {
-        this.createPhysicsMaterial('Concrete', { staticFriction: 0.8, dynamicFriction: 0.7, bounciness: 0.1, density: 2.4 });
-        this.createPhysicsMaterial('Rubber', { staticFriction: 0.9, dynamicFriction: 0.8, bounciness: 0.8, density: 1.1 });
-        this.createPhysicsMaterial('Ice', { staticFriction: 0.05, dynamicFriction: 0.03, bounciness: 0.1, density: 0.9 });
+        this.createPhysicsMaterial('Concrete', { staticFriction: 0.8, dynamicFriction: 0.7, bounciness: 0.1, density: 2.4 }, '/Engine/Physics');
+        this.createPhysicsMaterial('Rubber', { staticFriction: 0.9, dynamicFriction: 0.8, bounciness: 0.8, density: 1.1 }, '/Engine/Physics');
+        this.createPhysicsMaterial('Ice', { staticFriction: 0.05, dynamicFriction: 0.03, bounciness: 0.1, density: 0.9 }, '/Engine/Physics');
     }
 
     updatePhysicsMaterial(id: string, partialData: Partial<PhysicsMaterialAsset['data']>) {
@@ -336,7 +361,8 @@ class AssetManagerService {
         eventBus.emit('ASSET_CREATED', { id: asset.id, type: 'RIG' });
         return asset;
     }
-
+    
+    // ... (createSkeleton, createScene, importFile, parseOBJ, parseFBX, weldByPosition, reconstructQuads, generateMissingNormals methods remain unchanged)
     createSkeleton(name: string, path: string = '/Content/Skeletons'): SkeletonAsset {
         const id = crypto.randomUUID();
 
@@ -547,7 +573,8 @@ class AssetManagerService {
         eventBus.emit('ASSET_CREATED', { id: staticAsset.id, type: 'MESH' });
         return staticAsset;
     }
-
+    
+    // ... (parseOBJ, parseFBX, weldByPosition, reconstructQuads, generateMissingNormals methods remain unchanged)
     private parseOBJ(text: string, scale: number) {
         const positions: number[][] = [];
         const normals: number[][] = [];
@@ -994,7 +1021,7 @@ class AssetManagerService {
         }
     }
 
-    private createPrimitive(name: string, generator: () => any): StaticMeshAsset {
+    private createPrimitive(name: string, generator: () => any, path: string): StaticMeshAsset {
         const data = generator();
         const v2f = new Map<number, number[]>();
         
@@ -1027,7 +1054,7 @@ class AssetManagerService {
         if (data.faces) topology.graph = MeshTopologyUtils.buildTopology(topology, data.v.length / 3);
 
         return { 
-            id: crypto.randomUUID(), name: `SM_${name}`, type: 'MESH', isProtected: true, path: '/Content/Meshes',
+            id: crypto.randomUUID(), name: `SM_${name}`, type: 'MESH', isProtected: true, path,
             geometry: { 
                 vertices: new Float32Array(data.v), 
                 normals: new Float32Array(data.n), 
@@ -1041,12 +1068,22 @@ class AssetManagerService {
     }
 
     private registerDefaultAssets() {
-        this.registerAsset(this.createPrimitive('Cube', () => ProceduralGeneration.createCube()), MESH_TYPES['Cube']);
-        this.registerAsset(this.createPrimitive('Sphere', () => ProceduralGeneration.createSphere(24)), MESH_TYPES['Sphere']);
-        this.registerAsset(this.createPrimitive('Plane', () => ProceduralGeneration.createPlane()), MESH_TYPES['Plane']);
-        this.registerAsset(this.createPrimitive('Cylinder', () => ProceduralGeneration.createCylinder(24)), MESH_TYPES['Cylinder']);
-        this.registerAsset(this.createPrimitive('Cone', () => ProceduralGeneration.createCone(24)), MESH_TYPES['Cone']);
+        // Register Content and Engine roots
         this.registerAsset({ id: 'root_content', name: 'Content', type: 'FOLDER', path: '/' });
+        this.registerAsset({ id: 'root_engine', name: 'Engine', type: 'FOLDER', path: '/' });
+        
+        // Engine Assets
+        this.registerAsset({ id: 'eng_mesh', name: 'Meshes', type: 'FOLDER', path: '/Engine' });
+        this.registerAsset({ id: 'eng_phys', name: 'Physics', type: 'FOLDER', path: '/Engine' });
+        
+        this.registerAsset(this.createPrimitive('Cube', () => ProceduralGeneration.createCube(), '/Engine/Meshes'), MESH_TYPES['Cube']);
+        this.registerAsset(this.createPrimitive('Sphere', () => ProceduralGeneration.createSphere(24), '/Engine/Meshes'), MESH_TYPES['Sphere']);
+        this.registerAsset(this.createPrimitive('Plane', () => ProceduralGeneration.createPlane(), '/Engine/Meshes'), MESH_TYPES['Plane']);
+        this.registerAsset(this.createPrimitive('Cylinder', () => ProceduralGeneration.createCylinder(24), '/Engine/Meshes'), MESH_TYPES['Cylinder']);
+        this.registerAsset(this.createPrimitive('Cone', () => ProceduralGeneration.createCone(24), '/Engine/Meshes'), MESH_TYPES['Cone']);
+        this.registerAsset(this.createPrimitive('Torus', () => ProceduralGeneration.createTorus(), '/Engine/Meshes'), MESH_TYPES['Torus']);
+
+        // Content Assets
         this.registerAsset({ id: 'folder_mat', name: 'Materials', type: 'FOLDER', path: '/Content' });
         this.registerAsset({ id: 'folder_mesh', name: 'Meshes', type: 'FOLDER', path: '/Content' });
         this.registerAsset({ id: 'folder_tex', name: 'Textures', type: 'FOLDER', path: '/Content' });

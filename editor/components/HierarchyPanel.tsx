@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Entity, ComponentType } from '@/types';
 import { SceneGraph } from '@/engine/SceneGraph';
 import { Icon } from './Icon';
 import { useEngineAPI } from '@/engine/api/EngineProvider';
+import { TreeView, TreeNode } from './framework/TreeView';
 
 interface HierarchyPanelProps {
   entities: Entity[];
@@ -17,159 +18,36 @@ const getEntityIcon = (entity: Entity) => {
     if (entity.components[ComponentType.LIGHT]) return 'Sun';
     if (entity.components[ComponentType.TRANSFORM] && Object.keys(entity.components).length === 1) return 'Circle'; 
     if (entity.name.includes('Camera')) return 'Video';
+    if (entity.components[ComponentType.PARTICLE_SYSTEM]) return 'Sparkles';
     return 'Box';
 };
 
-const HierarchyItem: React.FC<{
-  entityId: string;
-  entityMap: Map<string, Entity>;
-  sceneGraph: SceneGraph;
-  selectedIds: string[];
-  onSelect: (ids: string[]) => void;
-  onContextMenu: (e: React.MouseEvent, id: string) => void;
-  depth: number;
-  renamingId: string | null;
-  onRenameStart: (id: string, name: string) => void;
-  renameValue: string;
-  setRenameValue: (val: string) => void;
-  onRenameSubmit: () => void;
-  api: any;
-}> = ({ 
-    entityId, entityMap, sceneGraph, selectedIds, onSelect, onContextMenu, depth,
-    renamingId, onRenameStart, renameValue, setRenameValue, onRenameSubmit, api
-}) => {
-  const [expanded, setExpanded] = useState(true);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const entity = entityMap.get(entityId);
-  
-  const childrenIds = sceneGraph.getChildren(entityId);
-  const hasChildren = childrenIds.length > 0;
-  const isSelected = entity ? selectedIds.includes(entity.id) : false;
-  const isRenaming = entity ? renamingId === entity.id : false;
-
-  useEffect(() => {
-    if (isRenaming && inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-    }
-  }, [isRenaming]);
-
-  if (!entity) return null;
-
-  const handleClick = (e: React.MouseEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-          if (isSelected) onSelect(selectedIds.filter(id => id !== entity.id));
-          else onSelect([...selectedIds, entity.id]);
-      } else if (e.shiftKey && selectedIds.length > 0) {
-           onSelect([...new Set([...selectedIds, entity.id])]);
-      } else {
-          onSelect([entity.id]);
-      }
-  };
-
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-      e.dataTransfer.setData('text/plain', entity.id);
-      e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const childId = e.dataTransfer.getData('text/plain');
-      if (!childId) return;
-      if (childId === entity.id) return;
-      
-      let current = sceneGraph.getParentId(entity.id);
-      while (current) {
-          if (current === childId) return;
-          current = sceneGraph.getParentId(current);
-      }
-      
-      api.commands.scene.reparentEntity(childId, entity.id);
-  };
-
-  return (
-    <div>
-      <div 
-        draggable
-        onClick={handleClick}
-        onContextMenu={(e) => onContextMenu(e, entity.id)}
-        onDragStart={handleDragStart}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={handleDrop}
-        className={`group flex items-center gap-1.5 py-1 pr-2 cursor-pointer text-xs select-none transition-colors border-l-2 border-transparent
-            ${isSelected 
-                ? 'text-accent font-bold' 
-                : 'text-text-secondary hover:text-white'}
-        `}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-      >
-        <div 
-          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className={`w-4 h-4 flex items-center justify-center rounded hover:bg-white/10 ${hasChildren ? 'visible' : 'invisible'}`}
-        >
-           <Icon name={expanded ? 'ChevronDown' : 'ChevronRight'} size={10} className={isSelected ? "text-accent" : "text-text-secondary"} />
-        </div>
-
-        <Icon 
-            name={getEntityIcon(entity) as any} 
-            size={12} 
-            className={isSelected ? 'text-accent' : (entity.components[ComponentType.LIGHT] ? 'text-yellow-500' : 'text-blue-400')} 
-        />
-        
-        {isRenaming ? (
-            <input 
-                ref={inputRef}
-                className="flex-1 bg-black/50 border border-accent text-white text-xs px-1 rounded outline-none min-w-0"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') onRenameSubmit();
-                    if (e.key === 'Escape') onRenameStart('', ''); 
-                    e.stopPropagation();
-                }}
-                onBlur={onRenameSubmit}
-                onClick={(e) => e.stopPropagation()}
-            />
-        ) : (
-            <span 
-                className="flex-1 truncate"
-                onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onRenameStart(entity.id, entity.name);
-                }}
-            >
-                {entity.name}
-            </span>
-        )}
-      </div>
-
-      {hasChildren && expanded && (
-        <div>
-          {childrenIds.map(childId => (
-            <HierarchyItemMemo
-              key={childId}
-              entityId={childId}
-              entityMap={entityMap}
-              sceneGraph={sceneGraph}
-              selectedIds={selectedIds}
-              onSelect={onSelect}
-              onContextMenu={onContextMenu}
-              depth={depth + 1}
-              renamingId={renamingId}
-              onRenameStart={onRenameStart}
-              renameValue={renameValue}
-              setRenameValue={setRenameValue}
-              onRenameSubmit={onRenameSubmit}
-              api={api}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+const getEntityColor = (entity: Entity) => {
+    if (entity.components[ComponentType.LIGHT]) return 'text-yellow-500';
+    if (entity.components[ComponentType.PARTICLE_SYSTEM]) return 'text-orange-500';
+    return 'text-blue-400';
 };
 
-const HierarchyItemMemo = React.memo(HierarchyItem);
+// Convert SceneGraph to TreeNode structure
+const buildSceneTree = (
+    sceneGraph: SceneGraph, 
+    entities: Map<string, Entity>, 
+    rootIds: string[]
+): TreeNode[] => {
+    return rootIds.map(id => {
+        const entity = entities.get(id);
+        const children = sceneGraph.getChildren(id);
+        
+        return {
+            id,
+            label: entity ? entity.name : 'Unknown',
+            icon: entity ? getEntityIcon(entity) : 'Box',
+            iconColor: entity ? getEntityColor(entity) : undefined,
+            data: entity,
+            children: children.length > 0 ? buildSceneTree(sceneGraph, entities, children) : []
+        };
+    });
+};
 
 export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneGraph, selectedIds, onSelect }) => {
   const rootIds = sceneGraph.getRootIds();
@@ -177,9 +55,25 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
   const [searchTerm, setSearchTerm] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, id: string, visible: boolean } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
   
   const api = useEngineAPI();
+
+  // Rebuild tree structure on changes
+  const treeData = useMemo(() => {
+      // If searching, flatten tree or filter
+      if (searchTerm) {
+          return entities
+              .filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()))
+              .map(e => ({
+                  id: e.id,
+                  label: e.name,
+                  icon: getEntityIcon(e),
+                  iconColor: getEntityColor(e),
+                  children: []
+              }));
+      }
+      return buildSceneTree(sceneGraph, entityMap, rootIds);
+  }, [entities, sceneGraph, rootIds, searchTerm]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -187,37 +81,42 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
     return () => window.removeEventListener('click', close);
   }, []);
 
-  const handleContextMenu = (e: React.MouseEvent, id: string) => {
+  const handleContextMenu = (e: React.MouseEvent, node: TreeNode) => {
     e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, id, visible: true });
-    if (!selectedIds.includes(id)) onSelect([id]);
+    setContextMenu({ x: e.clientX, y: e.clientY, id: node.id, visible: true });
+    if (!selectedIds.includes(node.id)) onSelect([node.id]);
   };
 
-  const handleRenameStart = (id: string, currentName: string) => {
-    setRenamingId(id);
-    setRenameValue(currentName);
-    setContextMenu(null);
-  };
-
-  const handleRenameSubmit = () => {
-    if (renamingId && renameValue.trim()) {
-        const entity = entityMap.get(renamingId);
-        if (entity && entity.name !== renameValue) {
-             api.commands.scene.renameEntity(renamingId, renameValue);
+  const handleRename = (id: string, newName: string) => {
+    if (newName.trim()) {
+        const entity = entityMap.get(id);
+        if (entity && entity.name !== newName) {
+             api.commands.scene.renameEntity(id, newName);
         }
     }
     setRenamingId(null);
   };
 
-  const deleteEntity = (id: string) => {
-    api.commands.scene.deleteEntity(id);
-    onSelect([]);
-    setContextMenu(null);
+  const handleDrop = (e: React.DragEvent, targetNode: TreeNode) => {
+      e.preventDefault();
+      const childId = e.dataTransfer.getData('text/plain');
+      if (!childId || childId === targetNode.id) return;
+      
+      // Prevent circular hierarchy check
+      let current = sceneGraph.getParentId(targetNode.id);
+      while (current) {
+          if (current === childId) return;
+          current = sceneGraph.getParentId(current);
+      }
+      
+      api.commands.scene.reparentEntity(childId, targetNode.id);
   };
 
-  const handleCreateEntity = () => {
-      api.commands.scene.createEntity('New Object');
+  const handleRootDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      const childId = e.dataTransfer.getData('text/plain');
+      if (!childId) return;
+      api.commands.scene.reparentEntity(childId, null);
   };
 
   return (
@@ -236,7 +135,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
         <button 
             className="p-1.5 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-colors"
             title="Create Empty Entity"
-            onClick={handleCreateEntity}
+            onClick={() => api.commands.scene.createEntity('New Object')}
         >
             <Icon name="Plus" size={14} />
         </button>
@@ -247,37 +146,36 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
             className="flex items-center gap-2 text-xs text-text-primary px-3 py-1 font-semibold opacity-70 cursor-default"
             onClick={() => onSelect([])}
             onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-                e.preventDefault();
-                const childId = e.dataTransfer.getData('text/plain');
-                if (!childId) return;
-                api.commands.scene.reparentEntity(childId, null);
-            }}
+            onDrop={handleRootDrop}
         >
             <Icon name="Cuboid" size={12} />
             <span>MainScene</span>
         </div>
         
-        <div className="mt-1">
-            {rootIds.map(id => (
-                <HierarchyItemMemo
-                  key={id}
-                  entityId={id}
-                  entityMap={entityMap}
-                  sceneGraph={sceneGraph}
-                  selectedIds={selectedIds}
-                  onSelect={onSelect}
-                  onContextMenu={handleContextMenu}
-                  depth={0}
-                  renamingId={renamingId}
-                  onRenameStart={handleRenameStart}
-                  renameValue={renameValue}
-                  setRenameValue={setRenameValue}
-                  onRenameSubmit={handleRenameSubmit}
-                  api={api}
-                />
-            ))}
-        </div>
+        <TreeView 
+            data={treeData}
+            selectedIds={selectedIds}
+            onSelect={(ids, multi) => {
+                 if (multi) {
+                     const set = new Set([...selectedIds, ...ids]);
+                     // Toggle logic if single click with shift/ctrl
+                     if (selectedIds.includes(ids[0])) set.delete(ids[0]);
+                     onSelect(Array.from(set));
+                 } else {
+                     onSelect(ids);
+                 }
+            }}
+            onContextMenu={handleContextMenu}
+            onDragStart={(e, node) => {
+                e.dataTransfer.setData('text/plain', node.id);
+                e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDrop={handleDrop}
+            onRename={handleRename}
+            renamingId={renamingId}
+            indentSize={16}
+            className="mt-1"
+        />
       </div>
       
       <div className="px-2 py-1 text-[9px] text-text-secondary bg-black/20 border-t border-white/5 flex justify-between items-center shrink-0">
@@ -292,17 +190,20 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({ entities, sceneG
         >
             <div 
                 className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2"
-                onClick={() => handleRenameStart(contextMenu.id, entityMap.get(contextMenu.id)?.name || '')}
+                onClick={() => { setRenamingId(contextMenu.id); setContextMenu(null); }}
             >
                 <Icon name="Edit2" size={12} /> Rename
             </div>
-            <div className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2">
+            <div 
+                className="px-3 py-1.5 hover:bg-accent hover:text-white cursor-pointer flex items-center gap-2"
+                onClick={() => { api.commands.scene.duplicateEntity(contextMenu.id); setContextMenu(null); }}
+            >
                 <Icon name="Copy" size={12} /> Duplicate
             </div>
             <div className="border-t border-white/10 my-1"></div>
             <div 
                 className="px-3 py-1.5 hover:bg-red-500/20 hover:text-red-400 cursor-pointer flex items-center gap-2"
-                onClick={() => deleteEntity(contextMenu.id)}
+                onClick={() => { api.commands.scene.deleteEntity(contextMenu.id); onSelect([]); setContextMenu(null); }}
             >
                 <Icon name="Trash2" size={12} /> Delete
             </div>

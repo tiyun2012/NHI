@@ -1,6 +1,6 @@
 
 // Add missing React import for ComponentType namespace
-import React from 'react';
+import type React from 'react';
 import type { SimulationMode, MeshComponentMode, ComponentType, EngineModule, SkeletonOptions, Asset, StaticMeshAsset, Entity, PerformanceMetrics } from '@/types';
 import type { SoftSelectionMode } from '@/engine/systems/DeformationSystem';
 import type { SoftSelectionFalloff } from '@/types';

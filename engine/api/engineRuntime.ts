@@ -51,6 +51,7 @@ function setRuntime(engine: Engine, runtime: EngineRuntime) {
       } finally {
         try {
           delete (engine as any)[RUNTIME_KEY];
+          delete (engine as any)[DISPOSE_KEY];
         } catch {
           // ignore
         }
