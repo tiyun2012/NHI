@@ -34,7 +34,22 @@ export const WindowManager: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const registerWindow = useCallback((config: Omit<WindowItem, 'isOpen' | 'isNested' | 'zIndex'>) => {
         setWindows(prev => {
-            if (prev[config.id]) return prev;
+            const existing = prev[config.id];
+            if (existing) {
+                // Update config while preserving runtime state:
+                return {
+                    ...prev,
+                    [config.id]: {
+                        ...existing,
+                        ...config,
+                        // Preserve state
+                        isOpen: existing.isOpen,
+                        isNested: existing.isNested,
+                        zIndex: existing.zIndex,
+                    }
+                };
+            }
+            // Create new
             return {
                 ...prev,
                 [config.id]: { ...config, isOpen: false, isNested: false, zIndex: 100 }

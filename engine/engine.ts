@@ -168,14 +168,9 @@ export class Engine {
         }
     }
 
-    /**
-     * Cleanly shut down the engine runtime.
-     * Useful for hot-reload, editor tab switching, or embedding multiple engines.
-     */
     dispose() {
         this.stopSystem();
 
-        // Unsubscribe engine-level events
         for (const off of this.eventUnsubs) {
             try {
                 off();
@@ -185,14 +180,12 @@ export class Engine {
         }
         this.eventUnsubs = [];
 
-        // Allow module systems to clean up
         try {
             moduleManager.dispose();
         } catch (e) {
             console.warn('[engine] moduleManager.dispose failed', e);
         }
 
-        // Dispose feature-module + API runtime (if attached)
         try {
             const disposeRuntime = (this as any).__ti3d_disposeEngineRuntime__ as undefined | (() => void);
             disposeRuntime?.();
@@ -204,8 +197,6 @@ export class Engine {
     get meshSystem() { return this.renderer.meshSystem; }
     get hoveredVertex() { return this.selectionSystem.hoveredVertex; }
 
-    // --- Soft Selection & Deformation Delegate ---
-    // These methods maintain the IEngine / IGizmoEngineContext interface
     get softSelectionEnabled() { return this.deformationSystem.enabled; }
     set softSelectionEnabled(v: boolean) { this.deformationSystem.enabled = v; }
     
@@ -240,7 +231,6 @@ export class Engine {
     clearDeformation() {
         this.deformationSystem.clearDeformation();
     }
-    // ---------------------------------------------
 
     setSelected(ids: string[]) {
         this.selectionSystem.setSelected(ids);
@@ -360,8 +350,6 @@ export class Engine {
     notifyMeshChanged(assetId: string) {
         const id = assetManager.getMeshID(assetId);
         if (id > 0) {
-            // Weights are now managed by DeformationSystem, but we might need to clear them if mesh changes drastically
-            // The DeformationSystem handles its own weight map
             const asset = assetManager.getAsset(assetId);
             if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
                 updateMeshBoundsUtil(asset as StaticMeshAsset | SkeletalMeshAsset);
@@ -427,7 +415,6 @@ export class Engine {
         
         this.flushPendingTextures();
         
-        // Initialize Deformation System with Context
         this.deformationSystem.init(
             this.ecs, 
             this.sceneGraph, 

@@ -19,6 +19,36 @@ function createMissingProxy(path: string) {
   });
 }
 
+/**
+ * Safely format arguments for the log to prevent crashes on circular structures
+ * or large objects (like React components).
+ */
+function safeFormatArgs(args: any[]): string {
+    return args.map(arg => {
+        if (arg === null) return 'null';
+        if (arg === undefined) return 'undefined';
+        const type = typeof arg;
+        if (type === 'string') return `"${arg}"`;
+        if (type === 'number' || type === 'boolean') return String(arg);
+        if (type === 'function') return `fn ${arg.name || ''}`;
+        
+        // For objects, try a shallow summary or type name
+        if (Array.isArray(arg)) return `Array(${arg.length})`;
+        
+        // Catch common React or complex types
+        if (arg.$$typeof || arg._owner || arg.type) return `[Component]`;
+        
+        try {
+            // Simple shallow summary of object keys
+            const keys = Object.keys(arg);
+            if (keys.length > 5) return `{ ${keys.slice(0, 5).join(', ')}... }`;
+            return JSON.stringify(arg);
+        } catch (e) {
+            return `[Object]`;
+        }
+    }).join(', ');
+}
+
 function createRegistryProxy<T extends object>(label: string, src: () => any, logCalls: boolean = false): T {
   return new Proxy(
     {},
@@ -35,15 +65,8 @@ function createRegistryProxy<T extends object>(label: string, src: () => any, lo
                     const fn = target[method as keyof typeof target];
                     if (typeof fn === 'function') {
                         return (...args: any[]) => {
-                            // Serialize arguments for logging
-                            let argsStr = '';
-                            try {
-                                argsStr = args.map(a => JSON.stringify(a)).join(', ');
-                            } catch (e) {
-                                argsStr = '...';
-                            }
-
-                            const cmdStr = `api.commands.${String(prop)}.${String(method)}(${argsStr})`;
+                            const argsDisplay = safeFormatArgs(args);
+                            const cmdStr = `api.commands.${String(prop)}.${String(method)}(${argsDisplay})`;
 
                             // 1. Browser Console (Executable Style)
                             console.log(`%c${cmdStr}`, 'color: #00bcd4; font-family: monospace; font-weight: bold;');
@@ -64,7 +87,6 @@ function createRegistryProxy<T extends object>(label: string, src: () => any, lo
     }
   ) as T;
 }
-
 
 export function createEngineAPI(ctx: EngineContext): EngineAPI {
   // Enable logging for commands (true) but not queries (false)

@@ -172,6 +172,11 @@ export class WebGLRenderer {
     gizmoOffsets = { cylinder:0, cylinderCount:0, cone:0, coneCount:0, quad:0, quadCount:0, quadBorder:0, quadBorderCount:0, sphere:0, sphereCount:0 };
     private sharedGizmoRenderer = new GizmoRenderer();
 
+    // Cache light arrays to reduce GC
+    private _lightDir = new Float32Array([0.5, -1.0, 0.5]);
+    private _lightColor = new Float32Array([1, 1, 1]);
+    private _lightIntensity = 1.0;
+
     constructor() {
         this.meshSystem = new MeshRenderSystem();
     }
@@ -297,13 +302,22 @@ export class WebGLRenderer {
         }
 
         // Prepare light data
-        let lightDir = [0.5, -1.0, 0.5], lightColor = [1, 1, 1], lightIntensity = 1.0;
+        // Defaults
+        this._lightDir[0] = 0.5; this._lightDir[1] = -1.0; this._lightDir[2] = 0.5;
+        this._lightColor[0] = 1; this._lightColor[1] = 1; this._lightColor[2] = 1;
+        this._lightIntensity = 1.0;
+
         for (let i = 0; i < count; i++) {
             if (store.isActive[i] && (store.componentMask[i] & COMPONENT_MASKS.LIGHT)) {
                 const base = i * 16;
-                lightDir[0] = store.worldMatrix[base + 8]; lightDir[1] = store.worldMatrix[base + 9]; lightDir[2] = store.worldMatrix[base + 10];
-                lightColor[0] = store.colorR[i]; lightColor[1] = store.colorG[i]; lightColor[2] = store.colorB[i];
-                lightIntensity = store.lightIntensity[i]; break;
+                this._lightDir[0] = store.worldMatrix[base + 8]; 
+                this._lightDir[1] = store.worldMatrix[base + 9]; 
+                this._lightDir[2] = store.worldMatrix[base + 10];
+                this._lightColor[0] = store.colorR[i]; 
+                this._lightColor[1] = store.colorG[i]; 
+                this._lightColor[2] = store.colorB[i];
+                this._lightIntensity = store.lightIntensity[i]; 
+                break;
             }
         }
 
@@ -319,7 +333,19 @@ export class WebGLRenderer {
         gl.clearColor(0.1, 0.1, 0.1, 1.0); 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); 
         
-        this.meshSystem.render(store, selectedIndices, vp, cam, time, lightDir, lightColor, lightIntensity, this.renderMode, 'OPAQUE', softSelData);
+        this.meshSystem.render(
+            store, 
+            selectedIndices, 
+            vp, 
+            cam, 
+            time, 
+            Array.from(this._lightDir), 
+            Array.from(this._lightColor), 
+            this._lightIntensity, 
+            this.renderMode, 
+            'OPAQUE', 
+            softSelData
+        );
         
         // Render Particles
         if (particleSystem) {
@@ -352,7 +378,19 @@ export class WebGLRenderer {
         gl.clearColor(0, 0, 0, 0); 
         gl.clear(gl.COLOR_BUFFER_BIT); 
         
-        this.meshSystem.render(store, selectedIndices, vp, cam, time, lightDir, lightColor, lightIntensity, this.renderMode, 'OVERLAY', softSelData);
+        this.meshSystem.render(
+            store, 
+            selectedIndices, 
+            vp, 
+            cam, 
+            time, 
+            Array.from(this._lightDir), 
+            Array.from(this._lightColor), 
+            this._lightIntensity, 
+            this.renderMode, 
+            'OVERLAY', 
+            softSelData
+        );
         
         // Render Custom Modules
         gl.drawBuffers([gl.COLOR_ATTACHMENT0]);

@@ -1,7 +1,7 @@
 
 import { assetManager } from './AssetManager';
 import { consoleService } from './Console';
-import { Asset } from '@/types';
+import { Asset, SkeletalMeshAsset } from '@/types';
 import { eventBus } from './EventBus';
 
 class ProjectSystemService {
@@ -9,33 +9,195 @@ class ProjectSystemService {
     private projectRootName: string = 'Project';
 
     async openProject() {
-        if (!('showDirectoryPicker' in window)) {
-            alert("Your browser does not support the File System Access API. Please use Chrome, Edge, or Opera.");
-            return;
+        // Prefer File System Access API (best UX + true directory handles)
+        if ('showDirectoryPicker' in window) {
+            try {
+                // @ts-ignore - File System Access API
+                const handle = await window.showDirectoryPicker();
+                this.rootHandle = handle;
+                this.projectRootName = handle.name;
+
+                assetManager.clear();
+                consoleService.info(`Opening project: ${this.projectRootName}...`, 'Project');
+
+                await this.scanDirectory(this.rootHandle, `/${this.projectRootName}`);
+
+                consoleService.success(`Project Loaded: ${this.projectRootName}`, 'Project');
+                // Ensure immediate UI update
+                setTimeout(() => {
+                    eventBus.emit('PROJECT_OPENED', { rootPath: `/${this.projectRootName}` });
+                }, 50);
+                return;
+            } catch (e: any) {
+                if (e?.name === 'AbortError') return; // User cancelled
+                consoleService.error(`Failed to open project: ${e?.message || e}`, 'Project');
+                alert(`Failed to open project. Please check permissions. Error: ${e.message}`);
+                return;
+            }
         }
 
+        // Fallback: <input webkitdirectory> (works in Chromium-based browsers and Safari; limited on Firefox)
         try {
-            // 1. Open Directory Picker
-            // @ts-ignore - File System Access API
-            const handle = await window.showDirectoryPicker();
-            this.rootHandle = handle;
-            this.projectRootName = handle.name;
+            const files = await this.pickFolderViaInput();
+            if (!files || files.length === 0) return;
 
-            // 2. Clear current engine state
+            // Infer root folder name from the first file relative path (e.g. "MyProject/assets/a.ti3d")
+            const firstRel = (files[0] as any).webkitRelativePath || files[0].name;
+            const rootName = String(firstRel).split('/')[0] || 'Project';
+            this.rootHandle = null;
+            this.projectRootName = rootName;
+
             assetManager.clear();
-            consoleService.info(`Opening project: ${this.projectRootName}...`, 'Project');
+            consoleService.info(`Opening project (fallback): ${this.projectRootName}...`, 'Project');
 
-            // 3. Recursively scan and load
-            await this.scanDirectory(this.rootHandle, `/${this.projectRootName}`);
-            
+            await this.loadFromFileList(files, this.projectRootName);
+
             consoleService.success(`Project Loaded: ${this.projectRootName}`, 'Project');
-            
-            // 4. Notify UI to navigate to the new project root
-            eventBus.emit('PROJECT_OPENED', { rootPath: `/${this.projectRootName}` });
-
+            setTimeout(() => {
+                eventBus.emit('PROJECT_OPENED', { rootPath: `/${this.projectRootName}` });
+            }, 50);
         } catch (e: any) {
-            if (e.name === 'AbortError') return; // User cancelled
-            consoleService.error(`Failed to open project: ${e.message}`, 'Project');
+            consoleService.error(`Failed to open project: ${e?.message || e}`, 'Project');
+        }
+    }
+
+    private pickFolderViaInput(): Promise<File[]> {
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            // @ts-ignore
+            input.webkitdirectory = true;
+            input.multiple = true;
+
+            input.style.position = 'fixed';
+            input.style.left = '-9999px';
+            document.body.appendChild(input);
+
+            const cleanup = () => {
+                input.remove();
+            };
+
+            input.addEventListener('change', () => {
+                const list = input.files ? Array.from(input.files) : [];
+                cleanup();
+                resolve(list);
+            }, { once: true });
+
+            input.addEventListener('cancel', () => {
+                cleanup();
+                resolve([]);
+            }, { once: true } as any);
+
+            // Trigger selector
+            input.click();
+        });
+    }
+
+    private async loadFromFileList(files: File[], rootName: string) {
+        const rootPath = `/${rootName}`;
+
+        // Create folder assets from all relative paths
+        const relPaths = files
+            .map(f => ((f as any).webkitRelativePath || f.name) as string)
+            .filter(Boolean);
+
+        this.registerFoldersFromRelativePaths(relPaths, rootName);
+
+        // Ensure root folder exists (matches scanDirectory behavior)
+        assetManager.registerAsset({
+            id: `folder_${rootPath}`,
+            name: rootName,
+            type: 'FOLDER',
+            path: '/'
+        });
+
+        // Load each file using the same rules as handle-based loading
+        for (const file of files) {
+            const rel = ((file as any).webkitRelativePath || file.name) as string;
+            const parts = rel.split('/');
+            // parent relative dir includes rootName
+            const parentRel = parts.length > 1 ? parts.slice(0, -1).join('/') : rootName;
+            const parentPath = `/${parentRel}`;
+            await this.loadRawFile(file, parentPath);
+        }
+    }
+
+    private registerFoldersFromRelativePaths(relPaths: string[], rootName: string) {
+        const folderSet = new Set<string>();
+
+        for (const rel of relPaths) {
+            const parts = rel.split('/');
+            // accumulate folders excluding the file name
+            for (let i = 1; i < parts.length; i++) {
+                const dir = parts.slice(0, i).join('/');
+                folderSet.add(`/${dir}`);
+            }
+        }
+
+        // Register in path-length order so parents exist first
+        const folders = Array.from(folderSet).sort((a, b) => a.length - b.length);
+        for (const currentPath of folders) {
+            if (currentPath === '/' || currentPath === `/${rootName}`) continue;
+            const folderName = currentPath.split('/').pop()!;
+            const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+            assetManager.registerAsset({
+                id: `folder_${currentPath}`,
+                name: folderName,
+                type: 'FOLDER',
+                path: parentPath
+            });
+        }
+    }
+
+    private async loadRawFile(file: File, parentPath: string) {
+        const name = file.name;
+        const ext = name.split('.').pop()?.toLowerCase();
+
+        try {
+            if (ext === 'ti3d') {
+                const text = await file.text();
+                const json = JSON.parse(text);
+
+                if (json.type && json.id) {
+                    const asset = json as Asset;
+                    asset.path = parentPath;
+                    assetManager.registerAsset(asset);
+                    eventBus.emit('ASSET_CREATED', { id: asset.id, type: asset.type });
+                }
+            } else if (['obj', 'fbx', 'glb', 'gltf'].includes(ext || '')) {
+                const buffer = await file.arrayBuffer();
+                const asset = await assetManager.importFile(
+                    name,
+                    buffer,
+                    (ext === 'fbx' || ext === 'glb') ? 'SKELETAL_MESH' : 'MESH',
+                    0.01,
+                    true
+                );
+                if (asset) {
+                    // Update Path (importFile sets default /Content/...)
+                    asset.path = parentPath;
+                    
+                    // If Skeletal, also fix the Skeleton Asset path
+                    if (asset.type === 'SKELETAL_MESH') {
+                        const skel = asset as SkeletalMeshAsset;
+                        if (skel.skeletonAssetId) {
+                            const skeletonAsset = assetManager.getAsset(skel.skeletonAssetId);
+                            if (skeletonAsset) {
+                                skeletonAsset.path = parentPath;
+                            }
+                        }
+                    }
+                    
+                    eventBus.emit('ASSET_UPDATED', { id: asset.id, type: asset.type });
+                }
+            } else if (['png', 'jpg', 'jpeg'].includes(ext || '')) {
+                const url = URL.createObjectURL(file);
+                const asset = assetManager.createTexture(name, url);
+                asset.path = parentPath;
+                eventBus.emit('ASSET_UPDATED', { id: asset.id, type: 'TEXTURE' });
+            }
+        } catch (e) {
+            console.warn(`Skipped file ${name}:`, e);
         }
     }
 
@@ -66,48 +228,7 @@ class ProjectSystemService {
 
     private async loadFile(fileHandle: any, parentPath: string) {
         const file = await fileHandle.getFile();
-        const name = file.name;
-        const ext = name.split('.').pop()?.toLowerCase();
-        
-        try {
-            // 1. JSON Assets (.ti3d)
-            if (ext === 'ti3d') {
-                const text = await file.text();
-                const json = JSON.parse(text);
-                
-                if (json.type && json.id) {
-                    const asset = json as Asset;
-                    asset.path = parentPath; // Force path to match actual file structure
-                    assetManager.registerAsset(asset);
-                    // IMPORTANT: Notify UI that this asset exists
-                    eventBus.emit('ASSET_CREATED', { id: asset.id, type: asset.type });
-                }
-            } 
-            // 2. 3D Models (.obj, .fbx, .glb)
-            else if (['obj', 'fbx', 'glb', 'gltf'].includes(ext || '')) {
-                const buffer = await file.arrayBuffer();
-                // importFile automatically emits ASSET_CREATED
-                const asset = await assetManager.importFile(name, buffer, (ext === 'fbx' || ext === 'glb') ? 'SKELETAL_MESH' : 'MESH', 0.01, true);
-                if (asset) {
-                    asset.path = parentPath;
-                    // Re-emit update to sync the path change
-                    eventBus.emit('ASSET_UPDATED', { id: asset.id, type: asset.type });
-                }
-            }
-            // 3. Textures
-            else if (['png', 'jpg', 'jpeg'].includes(ext || '')) {
-                const blob = await file.slice(0, file.size, file.type);
-                const url = URL.createObjectURL(blob);
-                
-                // Create texture asset manually to inject path
-                const asset = assetManager.createTexture(name, url);
-                asset.path = parentPath;
-                // Force update UI
-                eventBus.emit('ASSET_UPDATED', { id: asset.id, type: 'TEXTURE' });
-            }
-        } catch (e) {
-            console.warn(`Skipped file ${name}:`, e);
-        }
+        await this.loadRawFile(file, parentPath);
     }
 }
 

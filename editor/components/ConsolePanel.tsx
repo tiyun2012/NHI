@@ -13,6 +13,7 @@ const NOISY_PATTERNS = [
     'selection.highlight'
 ];
 
+// Fix: Restore truncated component code and ensure it returns a valid JSX element.
 export const ConsolePanel: React.FC = () => {
     const api = useEngineAPI();
     const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -71,233 +72,165 @@ export const ConsolePanel: React.FC = () => {
             if (l.type === 'info' && !filterInfo && l.source !== 'Result') return false; 
             
             // Noise Filter
-            if (hideNoise && l.type === 'command') {
-                if (NOISY_PATTERNS.some(p => l.message.includes(p))) return false;
-            }
+            if (hideNoise && l.type === 'info' && NOISY_PATTERNS.some(p => l.message.includes(p))) return false;
             
             return true;
         });
     };
 
-    const filteredLogs = getFilteredLogs();
-
-    const executeCommand = () => {
-        if (!command.trim()) return;
-        const cmd = command.trim();
-
-        // 1. Log Command
-        consoleService.cmd(cmd);
-
-        // 2. Update History
-        setHistory(prev => {
-            if (prev.length > 0 && prev[prev.length - 1] === cmd) return prev;
-            return [...prev, cmd];
-        });
+    const executeCommand = (cmd: string) => {
+        if (!cmd.trim()) return;
+        
+        consoleService.cmd(`> ${cmd}`);
+        setHistory(prev => [cmd, ...prev.slice(0, 49)]);
         setHistoryIndex(-1);
-        setCommand('');
-
-        // 3. Execute
+        
         try {
-            // Inject 'api' and 'engine' for cheat-like access
-            // eslint-disable-next-line no-new-func
-            const run = new Function('api', 'engine', `return (function() { return eval(${JSON.stringify(cmd)}); })()`);
-            
-            const result = run(api, engineInstance);
-            
+            // Unsafe but standard for internal engine consoles
+            // eslint-disable-next-line no-eval
+            const result = eval(cmd);
             if (result !== undefined) {
-                let output = String(result);
-                if (typeof result === 'object' && result !== null) {
-                    try {
-                        if (Array.isArray(result)) {
-                            output = `Array(${result.length})`;
-                        } else {
-                            // Try formatting for nicer reading
-                            const keys = Object.keys(result);
-                            output = keys.length > 0 
-                                ? `{ ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''} }`
-                                : '{}';
-                            if (result.toString !== Object.prototype.toString) output = result.toString();
-                        }
-                    } catch (e) { /* ignore */ }
-                }
-                consoleService.info(output, 'Result');
+                consoleService.log(String(result), 'info', 'Result');
             }
         } catch (e: any) {
-            consoleService.error(e.message || String(e), 'Execution Error');
+            consoleService.error(e.message, 'Eval');
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
-            e.preventDefault();
-            executeCommand();
+            executeCommand(command);
+            setCommand('');
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (history.length === 0) return;
-            const newIndex = historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
-            setHistoryIndex(newIndex);
-            setCommand(history[newIndex]);
+            if (historyIndex < history.length - 1) {
+                const newIdx = historyIndex + 1;
+                setHistoryIndex(newIdx);
+                setCommand(history[newIdx]);
+            }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (historyIndex === -1) return;
-            if (historyIndex === history.length - 1) {
+            if (historyIndex > 0) {
+                const newIdx = historyIndex - 1;
+                setHistoryIndex(newIdx);
+                setCommand(history[newIdx]);
+            } else if (historyIndex === 0) {
                 setHistoryIndex(-1);
                 setCommand('');
-            } else {
-                const newIndex = historyIndex + 1;
-                setHistoryIndex(newIndex);
-                setCommand(history[newIndex]);
             }
         }
     };
 
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text).catch(console.error);
-    };
-
-    const renderLogIcon = (type: LogType) => {
-        switch(type) {
-            case 'error': return <Icon name="AlertCircle" size={14} className="text-red-500" />;
-            case 'warn': return <Icon name="AlertTriangle" size={14} className="text-yellow-500" />;
-            case 'success': return <Icon name="CheckCircle2" size={14} className="text-green-500" />;
-            case 'command': return <Icon name="ChevronRight" size={14} className="text-cyan-400" />;
-            default: return <Icon name="Info" size={14} className="text-blue-400" />;
-        }
-    };
-
-    const getLogColor = (log: LogEntry) => {
-        if (log.source === 'Result') return 'text-text-secondary italic';
-        switch(log.type) {
+    const getTypeColor = (type: LogType) => {
+        switch (type) {
             case 'error': return 'text-red-400';
             case 'warn': return 'text-yellow-400';
             case 'success': return 'text-emerald-400';
-            case 'command': return 'text-cyan-400 font-bold';
-            default: return 'text-text-primary';
+            case 'command': return 'text-blue-400 font-bold';
+            default: return 'text-gray-300';
         }
     };
 
     return (
-        <div className="h-full bg-panel flex flex-col font-sans border-t border-black/20">
-            {/* Header / Tabs */}
-            <div className="flex items-center justify-between bg-panel-header px-2 border-b border-black/20 h-9 shrink-0">
-                <div className="flex gap-1 h-full pt-1">
+        <div className="flex flex-col h-full bg-[#111] font-mono text-[11px] select-text overflow-hidden">
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 p-1.5 bg-panel-header border-b border-white/5 shrink-0">
+                <div className="flex bg-black/40 rounded p-0.5 border border-white/5">
                     <button 
-                        onClick={() => { setActiveTab('LOGS'); setAutoScroll(true); }}
-                        className={`px-3 flex items-center gap-2 text-[10px] font-bold rounded-t transition-colors ${activeTab === 'LOGS' ? 'bg-[#1a1a1a] text-white border-t border-x border-white/5' : 'text-text-secondary hover:text-white'}`}
+                        onClick={() => setActiveTab('LOGS')}
+                        className={`px-2 py-0.5 rounded transition-all ${activeTab === 'LOGS' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-white'}`}
                     >
-                        <Icon name="List" size={12} /> All Logs
+                        Logs
                     </button>
                     <button 
-                        onClick={() => { setActiveTab('HISTORY'); setAutoScroll(true); }}
-                        className={`px-3 flex items-center gap-2 text-[10px] font-bold rounded-t transition-colors ${activeTab === 'HISTORY' ? 'bg-[#1a1a1a] text-white border-t border-x border-white/5' : 'text-text-secondary hover:text-white'}`}
+                        onClick={() => setActiveTab('HISTORY')}
+                        className={`px-2 py-0.5 rounded transition-all ${activeTab === 'HISTORY' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-white'}`}
                     >
-                        <Icon name="Terminal" size={12} /> Command History
-                    </button>
-                </div>
-                
-                <div className="flex items-center gap-2 text-[10px]">
-                    <button 
-                        onClick={() => consoleService.clear()}
-                        className="px-2 py-1 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-colors flex items-center gap-1"
-                        title="Clear Console"
-                    >
-                        <Icon name="Trash2" size={12} /> Clear
+                        History
                     </button>
                 </div>
-            </div>
 
-            {/* Filters (Visible only in LOGS tab) */}
-            {activeTab === 'LOGS' && (
-                <div className="flex items-center gap-2 px-2 py-1 bg-[#151515] border-b border-white/5">
+                <div className="h-4 w-px bg-white/10 mx-1"></div>
+
+                <div className="flex gap-2 items-center">
                     <button 
                         onClick={() => setFilterError(!filterError)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterError ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                        className={`flex items-center gap-1 transition-colors ${filterError ? 'text-red-400' : 'text-text-secondary opacity-40'}`}
                     >
-                        <Icon name="AlertCircle" size={10} /> Errors
+                        <Icon name="XCircle" size={10} /> Errors
                     </button>
                     <button 
                         onClick={() => setFilterWarn(!filterWarn)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterWarn ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                        className={`flex items-center gap-1 transition-colors ${filterWarn ? 'text-yellow-400' : 'text-text-secondary opacity-40'}`}
                     >
-                        <Icon name="AlertTriangle" size={10} /> Warnings
+                        <Icon name="AlertTriangle" size={10} /> Warn
                     </button>
                     <button 
                         onClick={() => setFilterInfo(!filterInfo)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${filterInfo ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-transparent border-transparent text-text-secondary opacity-50'}`}
+                        className={`flex items-center gap-1 transition-colors ${filterInfo ? 'text-gray-300' : 'text-text-secondary opacity-40'}`}
                     >
                         <Icon name="Info" size={10} /> Info
                     </button>
-                    
-                    <div className="h-4 w-px bg-white/10 mx-1"></div>
-                    
-                    <button 
-                        onClick={() => setHideNoise(!hideNoise)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${hideNoise ? 'bg-white/10 text-white border-white/20' : 'text-text-secondary border-transparent opacity-50'}`}
-                        title="Hide noisy API calls like setFocusedWidget"
-                    >
-                        <Icon name="Filter" size={10} /> Hide Noise
-                    </button>
-
-                    {!autoScroll && (
-                        <button 
-                            onClick={() => setAutoScroll(true)}
-                            className="ml-auto px-2 py-0.5 rounded text-[9px] bg-accent text-white flex items-center gap-1 animate-pulse"
-                        >
-                            <Icon name="ArrowDown" size={10} /> Resume Scroll
-                        </button>
-                    )}
                 </div>
-            )}
 
-            {/* Logs List */}
+                <div className="flex-1"></div>
+
+                <button 
+                    onClick={() => setHideNoise(!hideNoise)}
+                    className={`px-2 py-0.5 rounded border border-white/5 text-[9px] uppercase font-bold transition-all ${hideNoise ? 'bg-indigo-500/20 text-indigo-300' : 'text-text-secondary'}`}
+                    title="Toggle Noisy Pattern Filter"
+                >
+                    {hideNoise ? 'Filter ON' : 'Filter OFF'}
+                </button>
+
+                <button 
+                    onClick={() => consoleService.clear()}
+                    className="p-1 hover:text-red-400 text-text-secondary"
+                    title="Clear Console"
+                >
+                    <Icon name="Trash2" size={12} />
+                </button>
+            </div>
+
+            {/* Log List */}
             <div 
                 ref={listRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-2 bg-[#1a1a1a] custom-scrollbar select-text font-mono text-xs"
+                className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-0.5 bg-black/20"
             >
-                {filteredLogs.length === 0 && <div className="text-text-secondary italic p-4 text-center opacity-30">No logs to display</div>}
-                
-                {filteredLogs.map((log) => (
-                    <div key={log.id} className="flex items-start gap-2 py-1 px-1 hover:bg-white/5 border-b border-white/5 group relative break-all">
-                        <div className="mt-0.5 shrink-0 opacity-70">
-                            {renderLogIcon(log.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <span className="text-[9px] text-white/20 mr-2 select-none font-sans">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                            {log.source && <span className="text-[9px] text-white/40 mr-2 uppercase font-bold tracking-wider select-none font-sans">[{log.source}]</span>}
-                            <span className={getLogColor(log)}>{log.message}</span>
+                {getFilteredLogs().map((log) => (
+                    <div key={log.id} className="flex gap-2 group border-b border-white/[0.02] py-0.5">
+                        <span className="text-white/20 shrink-0 select-none">
+                            {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        <span className={`px-1 rounded bg-white/5 text-[9px] uppercase opacity-40 h-fit mt-0.5 shrink-0`}>
+                            {log.source}
+                        </span>
+                        <div className={`flex-1 break-all whitespace-pre-wrap leading-relaxed ${getTypeColor(log.type)}`}>
+                            {log.message}
                             {log.count > 1 && (
-                                <span className="ml-2 bg-white/20 text-white px-1.5 rounded-full text-[9px] font-bold select-none">{log.count}</span>
+                                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-white/10 text-white/40 text-[9px] font-bold">
+                                    {log.count}
+                                </span>
                             )}
                         </div>
-                        <button 
-                            onClick={() => copyToClipboard(log.message)}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-text-secondary hover:text-white transition-opacity absolute right-2 top-0"
-                            title="Copy"
-                        >
-                            <Icon name="Copy" size={12} />
-                        </button>
                     </div>
                 ))}
             </div>
 
             {/* Command Input */}
-            <div className="p-2 bg-panel-header border-t border-white/5 shrink-0">
-                <div className="flex items-center gap-2 bg-black/40 rounded px-2 py-1 border border-white/10 focus-within:border-accent transition-colors shadow-inner">
-                    <Icon name="ChevronRight" size={14} className="text-accent shrink-0" />
-                    <input 
-                        className="flex-1 bg-transparent border-none outline-none text-xs font-mono text-white placeholder:text-white/20 h-6"
-                        placeholder="Enter JS... (Use 'api' or 'engine' or 'ti3d')"
-                        value={command}
-                        onChange={e => setCommand(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        spellCheck={false}
-                        autoComplete="off"
-                    />
-                </div>
-                <div className="text-[9px] text-text-secondary mt-1 px-1 flex justify-between">
-                    <span>Use <code className="text-white">api.commands.*</code> or <code className="text-white">engine.*</code></span>
-                    <span>Up/Down for History</span>
+            <div className="p-1.5 bg-black border-t border-white/5 flex items-center gap-2 shrink-0">
+                <span className="text-blue-400 font-bold ml-1">{'>'}</span>
+                <input 
+                    type="text"
+                    className="flex-1 bg-transparent text-white outline-none border-none placeholder:text-white/10"
+                    placeholder="Enter command..."
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                />
+                <div className="text-[9px] text-text-secondary opacity-30 mr-2">
+                    {activeTab === 'HISTORY' ? 'Command History' : 'Eval JS'}
                 </div>
             </div>
         </div>

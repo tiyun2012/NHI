@@ -1,11 +1,9 @@
 
-
 import { StaticMeshAsset, SkeletalMeshAsset, SkeletonAsset, MaterialAsset, PhysicsMaterialAsset, ScriptAsset, RigAsset, TextureAsset, SceneAsset, GraphNode, GraphConnection, Asset, LogicalMesh, FolderAsset, BoneData } from '@/types';
 import { MaterialTemplate, MATERIAL_TEMPLATES } from './MaterialTemplates';
 import { MESH_TYPES } from './constants';
 import { ProceduralGeneration } from './ProceduralGeneration';
 import { MeshTopologyUtils } from './MeshTopologyUtils';
-// @ts-ignore
 import * as THREE from 'three';
 // @ts-ignore
 import { FBXLoader } from 'three-stdlib';
@@ -77,10 +75,13 @@ class AssetManagerService {
 
     constructor() {
         this.registerDefaultAssets();
-        this.createMaterial('Standard', MATERIAL_TEMPLATES[0]);
+        // Create default material in /Engine/Materials to keep Content clean
+        this.createMaterial('Standard', MATERIAL_TEMPLATES[0], '/Engine/Materials');
         this.createDefaultPhysicsMaterials();
-        this.createScript('New Visual Script');
-        this.createRig('Locomotion IK Logic', RIG_TEMPLATES[0]);
+        
+        // Example assets in Engine folder
+        this.createScript('Example Script', '/Engine/Scripts');
+        this.createRig('Example IK Rig', RIG_TEMPLATES[0], '/Engine/Rigs');
     }
     
     clear() {
@@ -103,12 +104,12 @@ class AssetManagerService {
         // Re-register defaults (Engine internals)
         this.registerDefaultAssets();
         this.createMaterial('Standard', MATERIAL_TEMPLATES[0], '/Engine/Materials');
+        this.createDefaultPhysicsMaterials();
         
         // Notify listeners that a full reset happened
         eventBus.emit('PROJECT_RESET', null);
     }
 
-    // ... (computeAABB, computeSiblings, createDefaultPhysicsMaterials, updatePhysicsMaterial, renameAsset, createFolder, saveMaterial, saveScript, duplicateAsset, deleteAsset, registerAsset methods remain unchanged)
     private computeAABB(vertices: Float32Array) {
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -362,7 +363,6 @@ class AssetManagerService {
         return asset;
     }
     
-    // ... (createSkeleton, createScene, importFile, parseOBJ, parseFBX, weldByPosition, reconstructQuads, generateMissingNormals methods remain unchanged)
     createSkeleton(name: string, path: string = '/Content/Skeletons'): SkeletonAsset {
         const id = crypto.randomUUID();
 
@@ -1072,9 +1072,12 @@ class AssetManagerService {
         this.registerAsset({ id: 'root_content', name: 'Content', type: 'FOLDER', path: '/' });
         this.registerAsset({ id: 'root_engine', name: 'Engine', type: 'FOLDER', path: '/' });
         
-        // Engine Assets
+        // Engine Assets Folders
         this.registerAsset({ id: 'eng_mesh', name: 'Meshes', type: 'FOLDER', path: '/Engine' });
         this.registerAsset({ id: 'eng_phys', name: 'Physics', type: 'FOLDER', path: '/Engine' });
+        this.registerAsset({ id: 'eng_mat', name: 'Materials', type: 'FOLDER', path: '/Engine' });
+        this.registerAsset({ id: 'eng_scripts', name: 'Scripts', type: 'FOLDER', path: '/Engine' });
+        this.registerAsset({ id: 'eng_rigs', name: 'Rigs', type: 'FOLDER', path: '/Engine' });
         
         this.registerAsset(this.createPrimitive('Cube', () => ProceduralGeneration.createCube(), '/Engine/Meshes'), MESH_TYPES['Cube']);
         this.registerAsset(this.createPrimitive('Sphere', () => ProceduralGeneration.createSphere(24), '/Engine/Meshes'), MESH_TYPES['Sphere']);
@@ -1082,15 +1085,6 @@ class AssetManagerService {
         this.registerAsset(this.createPrimitive('Cylinder', () => ProceduralGeneration.createCylinder(24), '/Engine/Meshes'), MESH_TYPES['Cylinder']);
         this.registerAsset(this.createPrimitive('Cone', () => ProceduralGeneration.createCone(24), '/Engine/Meshes'), MESH_TYPES['Cone']);
         this.registerAsset(this.createPrimitive('Torus', () => ProceduralGeneration.createTorus(), '/Engine/Meshes'), MESH_TYPES['Torus']);
-
-        // Content Assets
-        this.registerAsset({ id: 'folder_mat', name: 'Materials', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_mesh', name: 'Meshes', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_tex', name: 'Textures', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_rig', name: 'Rigs', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_phys', name: 'Physics', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_scr', name: 'Scripts', type: 'FOLDER', path: '/Content' });
-        this.registerAsset({ id: 'folder_scenes', name: 'Scenes', type: 'FOLDER', path: '/Content' });
     }
 }
 export const assetManager = new AssetManagerService();

@@ -12,6 +12,14 @@ export const AIScriptPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerate = async () => {
+    // Security Check: Disable AI requests in production builds (client-side keys should never be used in prod)
+    // @ts-ignore - Vite types are injected
+    if (!import.meta.env.DEV) {
+        const msg = 'AI generation is disabled in production builds.';
+        setError(msg);
+        consoleService.error(msg, 'Security');
+        return;
+    }
     if (!process.env.API_KEY) {
         setError("API_KEY not found. Please check your .env.local file.");
         return;
@@ -72,6 +80,16 @@ export const AIScriptPanel: React.FC = () => {
 
   const handleRun = () => {
       if (!generatedCode) return;
+
+      // Security Check: Disable arbitrary code execution in production
+      // @ts-ignore - Vite types are injected
+      if (!import.meta.env.DEV) {
+          const msg = "Script execution is disabled in production builds.";
+          setError(msg);
+          consoleService.error(msg, "Security");
+          return;
+      }
+
       try {
           // Wrap code in a function that receives context
           // We pass 'ecs' (the engine system), 'time', and 'dt'
@@ -116,9 +134,13 @@ export const AIScriptPanel: React.FC = () => {
 
       <button
         onClick={handleGenerate}
-        disabled={loading}
+        // @ts-ignore
+        title={!import.meta.env.DEV ? 'Disabled in production' : ''}
+        // @ts-ignore
+        disabled={loading || !import.meta.env.DEV}
         className={`flex items-center justify-center gap-2 py-2 rounded font-bold transition-all mb-4
-            ${loading ? 'bg-white/10 text-text-secondary cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg'}
+            ${// @ts-ignore
+              (loading || !import.meta.env.DEV) ? 'bg-white/10 text-text-secondary cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg'}
         `}
       >
         {loading ? <Icon name="Loader2" className="animate-spin" size={14} /> : <Icon name="Wand2" size={14} />}
@@ -155,9 +177,13 @@ export const AIScriptPanel: React.FC = () => {
       <div className="mt-4">
         <button
             onClick={handleRun}
-            disabled={!generatedCode}
+            // @ts-ignore
+            disabled={!generatedCode || !import.meta.env.DEV}
+            // @ts-ignore
+            title={!import.meta.env.DEV ? "Disabled in production" : ""}
             className={`w-full flex items-center justify-center gap-2 py-2 rounded font-bold transition-all
-                ${!generatedCode ? 'bg-white/5 text-text-secondary opacity-50 cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20'}
+                ${// @ts-ignore
+                  !generatedCode || !import.meta.env.DEV ? 'bg-white/5 text-text-secondary opacity-50 cursor-not-allowed' : 'bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20'}
             `}
         >
             <Icon name="Play" size={14} /> Run Script

@@ -23,8 +23,11 @@ interface NodeItemProps {
 const getTexturePreviewStyle = (id: string, assets: TextureAsset[]): React.CSSProperties => {
     const num = parseFloat(id);
     if (num >= 4) {
-        const asset = assets.find(a => a.layerIndex === num);
-        if (asset) return { backgroundImage: `url(${asset.source})`, backgroundSize: 'cover', backgroundPosition: 'center' };
+        // SAFETY CHECK: Ensure asset exists and has source before accessing
+        const asset = assets.find(a => a && a.layerIndex === num);
+        if (asset && 'source' in asset) {
+             return { backgroundImage: `url(${asset.source})`, backgroundSize: 'cover', backgroundPosition: 'center' };
+        }
     }
     if (num === 1) return { backgroundColor: '#ffffff', backgroundImage: `linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)`, backgroundSize: '25% 25%', backgroundPosition: '0 0, 0 12.5%, 12.5% -12.5%, -12.5% 0px' };
     if (num === 2) return { backgroundColor: '#808080', backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E")`, backgroundSize: '100% 100%' };

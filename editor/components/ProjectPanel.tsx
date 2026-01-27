@@ -60,7 +60,7 @@ const getAssetColor = (type: AssetType): string => {
 const buildFolderTree = (assets: Asset[], rootPrefix: string): TreeNode[] => {
     // Filter folders that are part of the target hierarchy (starts with rootPrefix)
     const folders = assets.filter(a => {
-        if (a.type !== 'FOLDER') return false;
+        if (!a || a.type !== 'FOLDER') return false;
         const fullPath = (a.path === '/' ? '' : a.path) + '/' + a.name;
         // Include root prefix itself (if it matches an asset name) or children
         return fullPath === rootPrefix || fullPath.startsWith(rootPrefix + '/');
@@ -151,8 +151,17 @@ export const ProjectPanel: React.FC = () => {
         
         // Navigate to new project root when opened
         const u5 = eventBus.on('PROJECT_OPENED', (payload: any) => {
-             refresh();
-             if (payload.rootPath) setCurrentPath(payload.rootPath);
+             // Force refresh assets first to ensure the new folder structure is visible
+             const newAssets = assetManager.getAllAssets();
+             setAssets(newAssets);
+             
+             if (payload.rootPath) {
+                 setCurrentPath(payload.rootPath);
+             } else {
+                 // Fallback if no path provided, try to find a custom root
+                 const customRoot = newAssets.find(a => a.type === 'FOLDER' && a.path === '/' && a.name !== 'Content' && a.name !== 'Engine');
+                 if (customRoot) setCurrentPath(`/${customRoot.name}`);
+             }
              setSelectedAssetIds([]);
         });
         
@@ -181,6 +190,7 @@ export const ProjectPanel: React.FC = () => {
     // Map filtered assets to ItemView Data
     const displayItems = useMemo<ItemData[]>(() => {
         const filtered = assets.filter(a => {
+            if (!a) return false;
             if (search) return a.name.toLowerCase().includes(search.toLowerCase());
             return a.path === currentPath;
         }).sort((a, b) => {
@@ -207,7 +217,8 @@ export const ProjectPanel: React.FC = () => {
             icon: getAssetIcon(a.type),
             iconColor: getAssetColor(a.type),
             badge: getFormatBadge(a.type),
-            previewUrl: a.type === 'TEXTURE' ? (a as any).source : undefined,
+            // SAFETY CHECK: Ensure we don't crash if 'a' is malformed or source is missing on non-texture
+            previewUrl: (a.type === 'TEXTURE' && 'source' in a) ? (a as any).source : undefined,
             data: a
         })));
         

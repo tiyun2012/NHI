@@ -1,1 +1,3 @@
-// Moved to SelectionModule.ts
+
+// This file is deprecated. Commands are now in SelectionModule.ts
+export {};

@@ -1,1 +1,3 @@
-// Moved to features/core/CoreModule.ts and features/scene/SceneModule.ts
+
+// This file is deprecated and unused.
+export {};

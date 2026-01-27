@@ -308,7 +308,26 @@ export class AssetViewportEngine implements IEngine {
     connectComponents() { consoleService.warn("Local Connect: Not implemented"); }
     deleteSelectedFaces() { consoleService.warn("Local Delete Face: Not implemented"); }
 
-    notifyMeshGeometryChanged(entityId: string) {
+    notifyMeshChanged(assetId: string) {
+        const id = assetManager.getMeshID(assetId);
+        if (id > 0) {
+            // Weights are now managed by DeformationSystem, but we might need to clear them if mesh changes drastically
+            // The DeformationSystem handles its own weight map
+            const asset = assetManager.getAsset(assetId);
+            if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+                updateMeshBounds(asset as StaticMeshAsset | SkeletalMeshAsset);
+                this.meshSystem.updateMeshGeometry(id, (asset as StaticMeshAsset | SkeletalMeshAsset).geometry, {
+                    positions: true,
+                    normals: true,
+                    uvs: true,
+                    vertexColors: true,
+                    indices: true,
+                });
+            }
+        }
+    }
+
+    notifyMeshGeometryChanged(entityId: string, _geometry?: any) {
         const idx = this.ecs.idToIndex.get(entityId);
         if (idx === undefined) return;
         const meshIntId = this.ecs.store.meshType[idx];
@@ -327,6 +346,20 @@ export class AssetViewportEngine implements IEngine {
                 vertexColors: true,
                 indices: true,
             });
+        }
+    }
+
+    notifyMeshGeometryFinalized(entityId: string) {
+        const idx = this.ecs.idToIndex.get(entityId);
+        if (idx === undefined) return;
+        const meshIntId = this.ecs.store.meshType[idx];
+        const uuid = assetManager.meshIntToUuid.get(meshIntId);
+        if (!uuid) return;
+        const asset = assetManager.getAsset(uuid);
+        
+        if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
+             // In local context, we don't necessarily emit global events, but we can if we want to sync
+             // this.onGeometryFinalized?.(asset.id);
         }
     }
 

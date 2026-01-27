@@ -227,11 +227,14 @@ const StaticMeshViewport: React.FC<{
             const eyeY = cam.target.y + cam.radius * Math.cos(cam.phi);
             const eyeZ = cam.target.z + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
             
+            // Explicitly create vectors to avoid potential 'out' parameter issues in Vec3Utils
+            const eye = { x: eyeX, y: eyeY, z: eyeZ };
+            
             Mat4Utils.perspective(45 * Math.PI / 180, canvas.width/canvas.height, 0.1, 1000.0, proj);
-            Mat4Utils.lookAt({ x: eyeX, y: eyeY, z: eyeZ }, cam.target, { x: 0, y: 1, z: 0 }, view);
+            Mat4Utils.lookAt(eye, cam.target, { x: 0, y: 1, z: 0 }, view);
             Mat4Utils.multiply(proj, view, vp);
 
-            engine.setViewport(vp, {x:eyeX, y:eyeY, z:eyeZ}, Math.max(1, vs.cssWidth), Math.max(1, vs.cssHeight));
+            engine.setViewport(vp, eye, Math.max(1, vs.cssWidth), Math.max(1, vs.cssHeight));
             engine.sceneGraph.update();
 
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -363,12 +366,35 @@ const StaticMeshViewport: React.FC<{
               const eyeX = ds.startCamera.radius * Math.sin(ds.startCamera.phi) * Math.cos(ds.startCamera.theta);
               const eyeY = ds.startCamera.radius * Math.cos(ds.startCamera.phi);
               const eyeZ = ds.startCamera.radius * Math.sin(ds.startCamera.phi) * Math.sin(ds.startCamera.theta);
-              const forward = Vec3Utils.normalize(Vec3Utils.scale({x:eyeX,y:eyeY,z:eyeZ}, -1, {x:0,y:0,z:0}), {x:0,y:0,z:0});
-              const right = Vec3Utils.normalize(Vec3Utils.cross(forward, {x:0,y:1,z:0}, {x:0,y:0,z:0}));
-              const camUp = Vec3Utils.normalize(Vec3Utils.cross(right, forward, {x:0,y:0,z:0}), {x:0,y:0,z:0});
-              const moveX = Vec3Utils.scale(right, -dx * panSpeed, {x:0,y:0,z:0});
-              const moveY = Vec3Utils.scale(camUp, dy * panSpeed, {x:0,y:0,z:0});
-              setCamera(p => ({ ...p, target: Vec3Utils.add(ds.startCamera.target, Vec3Utils.add(moveX, moveY, {x:0,y:0,z:0}), {x:0,y:0,z:0}) }));
+              
+              // Use explicit vector creation to be safe
+              const eye = { x: eyeX, y: eyeY, z: eyeZ };
+              const forward = Vec3Utils.create();
+              Vec3Utils.scale(eye, -1, forward);
+              Vec3Utils.normalize(forward, forward);
+              
+              const up = { x: 0, y: 1, z: 0 };
+              const right = Vec3Utils.create();
+              Vec3Utils.cross(forward, up, right);
+              Vec3Utils.normalize(right, right);
+              
+              const camUp = Vec3Utils.create();
+              Vec3Utils.cross(right, forward, camUp);
+              Vec3Utils.normalize(camUp, camUp);
+              
+              const moveX = Vec3Utils.create();
+              Vec3Utils.scale(right, -dx * panSpeed, moveX);
+              
+              const moveY = Vec3Utils.create();
+              Vec3Utils.scale(camUp, dy * panSpeed, moveY);
+              
+              const delta = Vec3Utils.create();
+              Vec3Utils.add(moveX, moveY, delta);
+              
+              const newTarget = Vec3Utils.create();
+              Vec3Utils.add(ds.startCamera.target, delta, newTarget);
+
+              setCamera(p => ({ ...p, target: newTarget }));
           }
       }
     };
@@ -507,7 +533,7 @@ export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) =>
                     if (asset && (asset.type === 'MESH' || asset.type === 'SKELETAL_MESH')) {
                         // Apply patch to AssetManager so engine picks it up
                         Object.assign((asset as any).geometry, geo);
-                        engine.notifyMeshGeometryChanged(engine.entityId!);
+                        engine.notifyMeshGeometryChanged(engine.entityId!, geo);
                     }
                 }
             },
@@ -529,7 +555,7 @@ export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) =>
                 notify: () => engine.notifyUI(),
                 // partial implementation
                 registerSection: (_loc, _cfg) => {},
-                registerWindow: (_cfg) => {}
+                registerWindow: (_cfg: any) => {}
             },
             scene: {
                  // partial scene commands needed for pie menu?
@@ -549,7 +575,7 @@ export const StaticMeshEditor: React.FC<{ assetId?: string }> = ({ assetId }) =>
 
         const queries: Partial<EngineQueries> = {
             // FIX: Correctly nest the selection queries so `api.queries.selection.getSubSelection` works.
-            selection: createSelectionQueries(engine),
+            selection: createSelectionQueries(engine), // Removed undefined argument
             mesh: {
                 getAssetByEntity: (eid) => {
                      // Local implementation

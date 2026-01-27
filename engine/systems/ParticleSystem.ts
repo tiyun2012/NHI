@@ -1,7 +1,6 @@
 
 import { ComponentStorage } from '../ecs/ComponentStorage';
 import { COMPONENT_MASKS } from '../constants';
-import { Vec3Utils, Random } from '../math';
 import { assetManager } from '../AssetManager';
 import { compileShader } from '../ShaderCompiler';
 import { consoleService } from '../Console';
@@ -20,18 +19,19 @@ uniform mat4 u_viewProjection;
 uniform vec3 u_cameraPos;
 uniform vec3 u_cameraUp;
 
-// Outputs to match Mesh Material Interface (SHADER_VARYINGS)
-out vec3 v_normal;
-out vec3 v_worldPos;
-out vec3 v_objectPos;
 out vec3 v_color;
-out float v_isSelected;
 out vec2 v_uv;
 out float v_texIndex;
 out float v_effectIndex;
-out vec4 v_weights; 
-out float v_softWeight; 
 out float v_life;
+
+// Dummy outputs to match mesh render system interface if needed by shared shaders
+out vec3 v_normal;
+out vec3 v_worldPos;
+out vec3 v_objectPos;
+out float v_isSelected;
+out vec4 v_weights;
+out float v_softWeight;
 
 void main() {
     // Billboarding logic
@@ -50,15 +50,15 @@ void main() {
     vec3 pos = a_center + (right * offset.x + up * offset.y) * a_size;
     
     v_uv = offset + 0.5;
-    v_color = a_color; // Raw color, not pre-multiplied
+    v_color = a_color; 
     v_texIndex = a_texIndex;
     v_effectIndex = a_effectIndex;
     v_life = a_life;
     
-    // Fake attributes for material compatibility
+    // Dummy values
+    v_normal = toCam;
     v_worldPos = pos;
-    v_normal = toCam; // Face camera
-    v_objectPos = vec3(offset, 0.0);
+    v_objectPos = vec3(0.0);
     v_isSelected = 0.0;
     v_weights = vec4(0.0);
     v_softWeight = 0.0;
@@ -91,10 +91,7 @@ void main() {
         texColor = vec4(1.0, 1.0, 1.0, a);
     }
     
-    // Calculate fade alpha from life
     float lifeAlpha = min(v_life * 3.0, 1.0);
-    
-    // Combine texture alpha and lifecycle alpha
     float finalAlpha = texColor.a * lifeAlpha;
     
     if (finalAlpha < 0.01) discard;
@@ -102,27 +99,86 @@ void main() {
     vec3 finalColor = v_color * texColor.rgb;
     
     outColor = vec4(finalColor, finalAlpha);
-    // Explicitly zero out effect index for transparent pixels to avoid blending artifacts in ID buffer
     outData = vec4(v_effectIndex / 255.0, 0.0, 0.0, 1.0);
 }`;
 
-// CPU Particle Data
-interface Particle {
-    x: number; y: number; z: number;
-    vx: number; vy: number; vz: number;
-    life: number;
-    maxLife: number;
-    size: number;
-    color: { r: number, g: number, b: number };
-}
-
-// Each Entity has one Emitter instance
+// Structure of Arrays for zero-allocation updates
 class EmitterInstance {
-    particles: Particle[] = [];
+    count = 0;
+    capacity: number;
+    
+    // Physics State
+    x: Float32Array;
+    y: Float32Array;
+    z: Float32Array;
+    vx: Float32Array;
+    vy: Float32Array;
+    vz: Float32Array;
+    
+    // Visual State
+    life: Float32Array;
+    maxLife: Float32Array;
+    size: Float32Array;
+    r: Float32Array;
+    g: Float32Array;
+    b: Float32Array;
+    
     spawnAccumulator = 0;
+    
+    // Render Data (Interleaved)
     bufferData: Float32Array;
+    
     constructor(maxCount: number) {
-        this.bufferData = new Float32Array(Math.min(maxCount, 20000) * 10); // stride 10
+        this.capacity = maxCount + 100; // Slight buffer
+        
+        this.x = new Float32Array(this.capacity);
+        this.y = new Float32Array(this.capacity);
+        this.z = new Float32Array(this.capacity);
+        this.vx = new Float32Array(this.capacity);
+        this.vy = new Float32Array(this.capacity);
+        this.vz = new Float32Array(this.capacity);
+        
+        this.life = new Float32Array(this.capacity);
+        this.maxLife = new Float32Array(this.capacity);
+        this.size = new Float32Array(this.capacity);
+        this.r = new Float32Array(this.capacity);
+        this.g = new Float32Array(this.capacity);
+        this.b = new Float32Array(this.capacity);
+
+        this.bufferData = new Float32Array(this.capacity * 10); // stride 10
+    }
+
+    spawn(px: number, py: number, pz: number, 
+          vx: number, vy: number, vz: number, 
+          life: number, size: number, 
+          cr: number, cg: number, cb: number) {
+        if (this.count >= this.capacity) return;
+        
+        const i = this.count++;
+        this.x[i] = px; this.y[i] = py; this.z[i] = pz;
+        this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
+        this.life[i] = life; this.maxLife[i] = life;
+        this.size[i] = size;
+        this.r[i] = cr; this.g[i] = cg; this.b[i] = cb;
+    }
+
+    remove(index: number) {
+        if (index >= this.count) return;
+        const last = --this.count;
+        
+        // Swap with last
+        this.x[index] = this.x[last];
+        this.y[index] = this.y[last];
+        this.z[index] = this.z[last];
+        this.vx[index] = this.vx[last];
+        this.vy[index] = this.vy[last];
+        this.vz[index] = this.vz[last];
+        this.life[index] = this.life[last];
+        this.maxLife[index] = this.maxLife[last];
+        this.size[index] = this.size[last];
+        this.r[index] = this.r[last];
+        this.g[index] = this.g[last];
+        this.b[index] = this.b[last];
     }
 }
 
@@ -130,45 +186,32 @@ export class ParticleSystem {
     gl: WebGL2RenderingContext | null = null;
     defaultProgram: WebGLProgram | null = null;
     materialPrograms: Map<number, WebGLProgram> = new Map();
-    
     emitters: Map<number, EmitterInstance> = new Map();
     
     vao: WebGLVertexArrayObject | null = null;
     vbo: WebGLBuffer | null = null;
     
-    MAX_BATCH = 10000;
+    // Increased max batch for high performance
+    MAX_BATCH = 50000; 
 
-    uniforms: {
-        viewProjection: WebGLUniformLocation | null;
-        cameraPos: WebGLUniformLocation | null;
-        cameraUp: WebGLUniformLocation | null;
-        textures: WebGLUniformLocation | null;
-    } = { viewProjection: null, cameraPos: null, cameraUp: null, textures: null };
-    
     init(gl: WebGL2RenderingContext) {
         this.gl = gl;
         
         const createProg = (vsSrc: string, fsSrc: string) => {
             const vs = gl.createShader(gl.VERTEX_SHADER)!; gl.shaderSource(vs, vsSrc); gl.compileShader(vs);
-            if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(vs));
             const fs = gl.createShader(gl.FRAGMENT_SHADER)!; gl.shaderSource(fs, fsSrc); gl.compileShader(fs);
-            if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(fs));
             const p = gl.createProgram()!; gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
             return p;
         };
 
         this.defaultProgram = createProg(PARTICLE_VS, PARTICLE_FS);
         
-        this.uniforms.viewProjection = gl.getUniformLocation(this.defaultProgram, 'u_viewProjection');
-        this.uniforms.cameraPos = gl.getUniformLocation(this.defaultProgram, 'u_cameraPos');
-        this.uniforms.cameraUp = gl.getUniformLocation(this.defaultProgram, 'u_cameraUp');
-        this.uniforms.textures = gl.getUniformLocation(this.defaultProgram, 'u_textures');
-
         this.vao = gl.createVertexArray();
         this.vbo = gl.createBuffer();
         
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+        // Pre-allocate GPU memory
         gl.bufferData(gl.ARRAY_BUFFER, this.MAX_BATCH * 10 * 4, gl.DYNAMIC_DRAW);
         
         const stride = 10 * 4;
@@ -198,10 +241,7 @@ export class ParticleSystem {
         if (!asset || asset.type !== 'MATERIAL') return null;
 
         const result = compileShader(asset.data.nodes, asset.data.connections);
-        if (typeof result === 'string') {
-            consoleService.error(`Particle Material Compile Error: ${result}`, 'ParticleSystem');
-            return null;
-        }
+        if (typeof result === 'string') return null;
 
         const vs = this.gl.createShader(this.gl.VERTEX_SHADER)!; 
         this.gl.shaderSource(vs, PARTICLE_VS); 
@@ -210,24 +250,17 @@ export class ParticleSystem {
         const fs = this.gl.createShader(this.gl.FRAGMENT_SHADER)!; 
         this.gl.shaderSource(fs, result.fs); 
         this.gl.compileShader(fs);
-
-        if (!this.gl.getShaderParameter(fs, this.gl.COMPILE_STATUS)) {
-            consoleService.error(`Particle FS Error: ${this.gl.getShaderInfoLog(fs)}`, 'ParticleSystem');
-            return null;
-        }
-
+        
         const prog = this.gl.createProgram()!;
-        this.gl.attachShader(prog, vs);
-        this.gl.attachShader(prog, fs);
+        this.gl.attachShader(prog, vs); 
+        this.gl.attachShader(prog, fs); 
         this.gl.linkProgram(prog);
 
         if (this.gl.getProgramParameter(prog, this.gl.LINK_STATUS)) {
             this.materialPrograms.set(materialId, prog);
             return prog;
-        } else {
-            consoleService.error(`Particle Link Error: ${this.gl.getProgramInfoLog(prog)}`, 'ParticleSystem');
-            return null;
         }
+        return null;
     }
 
     update(dt: number, store: ComponentStorage) {
@@ -242,69 +275,71 @@ export class ParticleSystem {
             let emitter = this.emitters.get(i);
             const maxCount = store.psMaxCount[i];
             
-            if (!emitter || emitter.particles.length > maxCount + 100) { 
+            if (!emitter || emitter.capacity < maxCount) { 
                 emitter = new EmitterInstance(maxCount);
                 this.emitters.set(i, emitter);
             }
 
+            // Spawn Logic
             emitter.spawnAccumulator += safeDt * store.psRate[i];
             const spawnCount = Math.floor(emitter.spawnAccumulator);
             emitter.spawnAccumulator -= spawnCount;
-            
-            const actualSpawn = Math.min(spawnCount, 100);
+            const actualSpawn = Math.min(spawnCount, 50); // Cap per frame spawn
 
-            const shape = store.psShape[i];
-            const wmOffset = i * 16;
-            const rootPos = { x: store.worldMatrix[wmOffset+12], y: store.worldMatrix[wmOffset+13], z: store.worldMatrix[wmOffset+14] };
-            const speed = store.psSpeed[i];
-            
-            for (let k = 0; k < actualSpawn; k++) {
-                if (emitter.particles.length >= maxCount) break;
-                
-                let vx=0, vy=1, vz=0;
-                let px=rootPos.x, py=rootPos.y, pz=rootPos.z;
-                
-                if (shape === 1) { // Cone
-                    const theta = Math.random() * Math.PI * 2;
-                    const spread = 0.5;
-                    vx = (Math.random() - 0.5) * spread;
-                    vz = (Math.random() - 0.5) * spread;
-                    vy = 1.0;
-                } else if (shape === 2) { // Sphere
-                    const phi = Math.random() * Math.PI * 2;
-                    const costheta = Math.random() * 2 - 1;
-                    const rho = Math.sqrt(1 - costheta * costheta);
-                    vx = rho * Math.cos(phi);
-                    vy = rho * Math.sin(phi);
-                    vz = costheta;
+            if (actualSpawn > 0) {
+                const shape = store.psShape[i];
+                const wmOffset = i * 16;
+                const rx = store.worldMatrix[wmOffset+12];
+                const ry = store.worldMatrix[wmOffset+13];
+                const rz = store.worldMatrix[wmOffset+14];
+                const speed = store.psSpeed[i];
+                const life = store.psLife[i];
+                const size = store.psSize[i];
+                const cr = store.psColorR[i];
+                const cg = store.psColorG[i];
+                const cb = store.psColorB[i];
+
+                for (let k = 0; k < actualSpawn; k++) {
+                    let vx=0, vy=1, vz=0;
+                    
+                    if (shape === 1) { // Cone
+                        vx = (Math.random() - 0.5);
+                        vz = (Math.random() - 0.5);
+                        vy = 1.0;
+                    } else { // Sphere
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        vx = Math.sin(phi) * Math.cos(theta);
+                        vy = Math.sin(phi) * Math.sin(theta);
+                        vz = Math.cos(phi);
+                    }
+                    
+                    const len = Math.sqrt(vx*vx+vy*vy+vz*vz);
+                    if (len > 0) { vx/=len; vy/=len; vz/=len; }
+                    
+                    emitter.spawn(rx, ry, rz, vx*speed, vy*speed, vz*speed, life, size * (0.5 + Math.random()*0.5), cr, cg, cb);
                 }
-                
-                const len = Math.sqrt(vx*vx+vy*vy+vz*vz);
-                if (len > 0) { vx/=len; vy/=len; vz/=len; }
-                
-                emitter.particles.push({
-                    x: px, y: py, z: pz,
-                    vx: vx * speed, vy: vy * speed, vz: vz * speed,
-                    life: store.psLife[i], maxLife: store.psLife[i],
-                    size: store.psSize[i] * (0.5 + Math.random()*0.5),
-                    color: { r: store.psColorR[i], g: store.psColorG[i], b: store.psColorB[i] }
-                });
             }
 
-            for (let pIdx = emitter.particles.length - 1; pIdx >= 0; pIdx--) {
-                const p = emitter.particles[pIdx];
-                p.life -= safeDt;
-                if (p.life <= 0) {
-                    emitter.particles[pIdx] = emitter.particles[emitter.particles.length - 1];
-                    emitter.particles.pop();
+            // Update Logic (SoA)
+            const count = emitter.count;
+            for (let j = count - 1; j >= 0; j--) {
+                emitter.life[j] -= safeDt;
+                if (emitter.life[j] <= 0) {
+                    emitter.remove(j);
                     continue;
                 }
                 
-                p.x += p.vx * safeDt;
-                p.y += p.vy * safeDt;
-                p.z += p.vz * safeDt;
-                p.vy += 0.5 * safeDt; // Buoyancy
-                p.vx *= 0.99; p.vy *= 0.99; p.vz *= 0.99; // Drag
+                emitter.vy[j] += 0.5 * safeDt; // Buoyancy
+                
+                // Drag
+                emitter.vx[j] *= 0.99;
+                emitter.vy[j] *= 0.99;
+                emitter.vz[j] *= 0.99;
+                
+                emitter.x[j] += emitter.vx[j] * safeDt;
+                emitter.y[j] += emitter.vy[j] * safeDt;
+                emitter.z[j] += emitter.vz[j] * safeDt;
             }
         }
     }
@@ -315,8 +350,6 @@ export class ParticleSystem {
         
         gl.enable(gl.DEPTH_TEST);
         gl.depthFunc(gl.LEQUAL); 
-        
-        // Use Standard Alpha Blending for better Material compatibility
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthMask(false); 
@@ -325,30 +358,18 @@ export class ParticleSystem {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
 
         this.emitters.forEach((emitter, idx) => {
-            if (emitter.particles.length === 0) return;
+            if (emitter.count === 0) return;
             
             const matId = store.psMaterialIndex[idx];
-            let program = this.defaultProgram!;
-            
-            if (matId > 0) {
-                const matProg = this.getMaterialProgram(matId);
-                if (matProg) {
-                    program = matProg;
-                }
-            }
+            const program = (matId > 0 && this.materialPrograms.has(matId)) ? this.materialPrograms.get(matId)! : this.defaultProgram!;
 
             gl.useProgram(program);
-
+            
+            // Set Uniforms (Could be optimized by caching locations)
             gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_viewProjection'), false, viewProj);
             gl.uniform3f(gl.getUniformLocation(program, 'u_cameraPos'), camPos.x, camPos.y, camPos.z);
             gl.uniform3f(gl.getUniformLocation(program, 'u_cameraUp'), 0, 1, 0); 
-            
-            gl.uniform3f(gl.getUniformLocation(program, 'u_lightDir'), 0.5, -1.0, 0.5);
-            gl.uniform3f(gl.getUniformLocation(program, 'u_lightColor'), 1, 1, 1);
-            gl.uniform1f(gl.getUniformLocation(program, 'u_lightIntensity'), 1.0);
             gl.uniform1f(gl.getUniformLocation(program, 'u_time'), time);
-            gl.uniform1i(gl.getUniformLocation(program, 'u_renderMode'), 0); 
-            gl.uniform1f(gl.getUniformLocation(program, 'u_showHeatmap'), 0.0);
             gl.uniform1i(gl.getUniformLocation(program, 'u_isParticle'), 1);
 
             if (textureArray) {
@@ -360,39 +381,32 @@ export class ParticleSystem {
             const texIdx = store.psTextureId[idx];
             const effectIdx = store.effectIndex[idx];
             
-            const count = Math.min(emitter.particles.length, this.MAX_BATCH);
-            if (emitter.bufferData.length < count * 10) {
-                emitter.bufferData = new Float32Array(Math.max(count * 10, 4096));
-            }
-            
+            // Pack Data
+            const count = emitter.count;
             const data = emitter.bufferData;
             let ptr = 0;
             
             for(let i = 0; i < count; i++) {
-                const p = emitter.particles[i];
-                data[ptr++] = p.x;
-                data[ptr++] = p.y;
-                data[ptr++] = p.z;
+                data[ptr++] = emitter.x[i];
+                data[ptr++] = emitter.y[i];
+                data[ptr++] = emitter.z[i];
                 
-                // Do NOT pre-multiply color. Pass pure RGB.
-                // Opacity is handled by v_life calculation in shader.
-                data[ptr++] = p.color.r;
-                data[ptr++] = p.color.g;
-                data[ptr++] = p.color.b;
+                data[ptr++] = emitter.r[i];
+                data[ptr++] = emitter.g[i];
+                data[ptr++] = emitter.b[i];
                 
-                const lifeRatio = p.life / p.maxLife;
-                data[ptr++] = p.size * Math.sin(lifeRatio * Math.PI); 
+                const lifeRatio = emitter.life[i] / emitter.maxLife[i];
+                data[ptr++] = emitter.size[i] * Math.sin(lifeRatio * Math.PI); 
                 data[ptr++] = lifeRatio;
                 data[ptr++] = texIdx;
                 data[ptr++] = effectIdx;
             }
             
             gl.bufferSubData(gl.ARRAY_BUFFER, 0, data.subarray(0, ptr));
-            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, count);
+            gl.drawArraysInstanced(gl.TRIANGLES, 0, 4, count);
         });
 
         gl.bindVertexArray(null);
         gl.depthMask(true);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     }
 }
